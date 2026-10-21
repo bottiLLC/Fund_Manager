@@ -59,22 +59,22 @@ def test_format_cli_report() -> None:
     holding = HoldingEvaluation(
         item=item,
         nav=30000.0,
-        virtual_units=500.0,
-        effective_units=1500.0,
-        valuation=4500000,
+        virtual_units=0.0,
+        effective_units=1000.0,
+        valuation=3000000,
         profit_loss=None,
         profit_loss_rate=None,
     )
     summary = TankSummary(
         account="DC",
-        valuation_total=4500000,
+        valuation_total=3000000,
         ratio=100.0,
         profit_loss_total=None,
         bar="[██████████] 100.0%",
     )
     report = PortfolioReport(
         as_of_date="2026-10-21",
-        total_valuation=4500000,
+        total_valuation=3000000,
         total_profit_loss=None,
         tank_summaries=[summary],
         holdings=[holding],
@@ -84,8 +84,6 @@ def test_format_cli_report() -> None:
 
     assert "投資信託 ポートフォリオ評価ダッシュボード" in output
     assert "2026-10-21" in output
-    assert "¥4,500,000" in output
+    assert "¥3,000,000" in output
     assert "[██████████] 100.0%" in output
     assert "米国株S&P500" in output
-    assert "*" in output  # virtual_units > 0 注釈
-    assert "※ 口数末尾の '*' はDC口座の経過月数に応じた仮想積立加山口数を含みます。" in output

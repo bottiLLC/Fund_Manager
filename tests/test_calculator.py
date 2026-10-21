@@ -2,56 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date
-
 import pytest
 
-from src.calculator import (
-    calculate_dc_virtual_units,
-    calculate_elapsed_months,
-    evaluate_portfolio,
-    render_text_bar,
-)
+from src.calculator import evaluate_portfolio, render_text_bar
 from src.models import PortfolioItem
 
 
-def test_calculate_elapsed_months() -> None:
-    """基準日からの経過月数計算を検証する。"""
-    # 同一月
-    assert calculate_elapsed_months(date(2025, 1, 1), date(2025, 1, 15)) == 0
-    # 翌月
-    assert calculate_elapsed_months(date(2025, 1, 1), date(2025, 2, 1)) == 1
-    # 1年後
-    assert calculate_elapsed_months(date(2025, 1, 1), date(2026, 1, 1)) == 12
-    # 過去日指定（負数は0クランプ）
-    assert calculate_elapsed_months(date(2025, 5, 1), date(2025, 1, 1)) == 0
-
-
-def test_calculate_dc_virtual_units() -> None:
-    """DC仮想購入口数の算出を検証する。"""
-    # 10ヶ月経過、月20,000円、基準価額20,000円
-    # 総額200,000円 / (20,000 / 10,000) = 100,000口
-    units = calculate_dc_virtual_units(
-        base_date=date(2025, 1, 1),
-        current_date=date(2025, 11, 1),
-        nav=20_000.0,
-        monthly_amount=20_000,
-    )
-    assert units == 100_000.0
-
-    # nav <= 0 の境界
-    assert (
-        calculate_dc_virtual_units(
-            base_date=date(2025, 1, 1),
-            current_date=date(2025, 11, 1),
-            nav=0.0,
-        )
-        == 0.0
-    )
-
-
 def test_render_text_bar() -> None:
-    """テキストプログレスバーの描画を検証する。"""
+    """テキストプログレスバーの描画およびクランプ動作を検証する。"""
     bar_0 = render_text_bar(0.0, width=10)
     assert bar_0 == "[░░░░░░░░░░]   0.0%"
 
@@ -61,9 +19,17 @@ def test_render_text_bar() -> None:
     bar_half = render_text_bar(50.0, width=10)
     assert bar_half == "[█████░░░░░]  50.0%"
 
+    # 負数クランプ (0.0%へ)
+    bar_neg = render_text_bar(-10.0, width=10)
+    assert bar_neg == "[░░░░░░░░░░]   0.0%"
+
+    # 100超クランプ (100.0%へ)
+    bar_over = render_text_bar(150.0, width=10)
+    assert bar_over == "[██████████] 100.0%"
+
 
 def test_evaluate_portfolio_comprehensive() -> None:
-    """ポートフォリオ評価の全体ロジック（評価額、含み損益、DC仮想加算、タンク集計）を検証する。"""
+    """ポートフォリオ評価の全体ロジック（登録口数直接評価、含み損益、タンク集計）を検証する。"""
     # Arrange
     items = [
         # 法人: 簿価あり
@@ -74,6 +40,14 @@ def test_evaluate_portfolio_comprehensive() -> None:
             units=10_000.0,
             cost_basis=15_000,
         ),
+        # 法人: 同一口座の追加銘柄（簿価なし）
+        PortfolioItem(
+            account="法人",
+            code="03314187",
+            name="米国株",
+            units=5_000.0,
+            cost_basis=0,
+        ),
         # iDeCo: 簿価なし (cost_basis=0)
         PortfolioItem(
             account="iDeCo",
@@ -82,21 +56,21 @@ def test_evaluate_portfolio_comprehensive() -> None:
             units=10_000.0,
             cost_basis=0,
         ),
-        # DC: 仮想加算あり (10ヶ月経過 = 200,000円分)
+        # DC: 登録口数で直接計算 (10,000口)
         PortfolioItem(
             account="DC",
-            code="03314187",
-            name="米国株",
+            code="0331418A",
+            name="オルカン",
             units=10_000.0,
-            cost_basis=0,
+            cost_basis=18_000,
         ),
     ]
 
     nav_map = {
-        "03311181": 20_000.0,  # 評価額 = 10,000 * (20,000/10,000) = 20,000円
-        "03312184": 15_000.0,  # 評価額 = 10,000 * (15,000/10,000) = 15,000円
-        "03314187": 20_000.0,  # 仮想口数 = (10 * 20,000 * 10,000) / 20,000 = 100,000口
-        # 実質口数 = 110,000口, 評価額 = 110,000 * 2 = 220,000円
+        "03311181": 20_000.0,  # 評価額 = 10,000 * 2.0 = 20,000円
+        "03314187": 30_000.0,  # 評価額 = 5,000 * 3.0 = 15,000円
+        "03312184": 15_000.0,  # 評価額 = 10,000 * 1.5 = 15,000円
+        "0331418A": 25_000.0,  # 評価額 = 10,000 * 2.5 = 25,000円
     }
 
     # Act
@@ -104,16 +78,15 @@ def test_evaluate_portfolio_comprehensive() -> None:
         items=items,
         nav_map=nav_map,
         as_of_date="2026-10-21",
-        dc_base_date=date(2025, 1, 1),
-        current_date=date(2025, 11, 1),  # 10ヶ月経過
     )
 
     # Assert
-    # 法人評価
-    corp_h = next(h for h in report.holdings if h.item.account == "法人")
-    assert corp_h.valuation == 20_000
-    assert corp_h.profit_loss == 5_000  # 20,000 - 15,000
-    assert corp_h.profit_loss_rate == pytest.approx(33.333, 0.01)
+    # 法人評価 (全世界株)
+    corp_h1 = next(h for h in report.holdings if h.item.code == "03311181")
+    assert corp_h1.valuation == 20_000
+    assert corp_h1.profit_loss == 5_000  # 20,000 - 15,000
+    assert corp_h1.profit_loss_rate == pytest.approx(33.333, 0.01)
+    assert corp_h1.effective_units == 10_000.0
 
     # iDeCo評価 (簿価なし)
     ideco_h = next(h for h in report.holdings if h.item.account == "iDeCo")
@@ -121,30 +94,32 @@ def test_evaluate_portfolio_comprehensive() -> None:
     assert ideco_h.profit_loss is None
     assert ideco_h.profit_loss_rate is None
 
-    # DC評価 (仮想加算100,000口)
+    # DC評価 (登録口数10,000口で直接評価)
     dc_h = next(h for h in report.holdings if h.item.account == "DC")
-    assert dc_h.virtual_units == 100_000.0
-    assert dc_h.effective_units == 110_000.0
-    assert dc_h.valuation == 220_000
+    assert dc_h.effective_units == 10_000.0
+    assert dc_h.valuation == 25_000
+    assert dc_h.profit_loss == 7_000  # 25,000 - 18,000
+    assert dc_h.profit_loss_rate == pytest.approx(38.888, 0.01)
 
     # 全体集計
-    total_expected = 20_000 + 15_000 + 220_000
+    total_expected = 20_000 + 15_000 + 15_000 + 25_000  # 75,000
     assert report.total_valuation == total_expected
-    assert report.total_profit_loss == 5_000  # 簿価のある法人分のみ
+    assert report.total_profit_loss == 5_000 + 7_000  # 12,000 (簿価のある銘柄のみ)
 
     # タンク別サマリー確認
     assert len(report.tank_summaries) == 3
     corp_tank = next(t for t in report.tank_summaries if t.account == "法人")
-    assert corp_tank.valuation_total == 20_000
-    assert corp_tank.profit_loss_total == 5_000
-    assert corp_tank.ratio == round((20_000 / total_expected) * 100.0, 1)
+    assert corp_tank.valuation_total == 35_000  # 20,000 + 15,000
+    assert corp_tank.profit_loss_total == 5_000  # 簿価のある銘柄のみ
+    assert corp_tank.ratio == round((35_000 / total_expected) * 100.0, 1)
 
     ideco_tank = next(t for t in report.tank_summaries if t.account == "iDeCo")
     assert ideco_tank.profit_loss_total is None  # 簿価なし
 
 
-def test_evaluate_portfolio_with_dc_target_code_and_zero_cost() -> None:
-    """dc_target_code明示指定および全銘柄簿価なし(total_cost_basis == 0)の場合の集計を検証する。"""
+def test_evaluate_portfolio_with_zero_cost_and_zero_valuation() -> None:
+    """全銘柄簿価なし(total_cost_basis == 0)および総評価額0の境界動作を検証する。"""
+    # 1. 全銘柄簿価なし
     items = [
         PortfolioItem(
             account="DC",
@@ -167,14 +142,14 @@ def test_evaluate_portfolio_with_dc_target_code_and_zero_cost() -> None:
         items=items,
         nav_map=nav_map,
         as_of_date="2026-10-21",
-        dc_base_date=date(2025, 1, 1),
-        current_date=date(2025, 11, 1),
-        dc_target_code="03314187",
     )
 
     assert report.total_profit_loss is None
-    # 03314187 のみ仮想加算される
     item1 = next(h for h in report.holdings if h.item.code == "03314187")
-    item2 = next(h for h in report.holdings if h.item.code == "03311181")
-    assert item1.virtual_units > 0
-    assert item2.virtual_units == 0.0
+    assert item1.effective_units == 1000.0
+    assert item1.valuation == 2000
+
+    # 2. 保有銘柄が空の場合（総評価額0）
+    report_zero = evaluate_portfolio(items=[], nav_map={}, as_of_date="2026-10-21")
+    assert report_zero.total_valuation == 0
+    assert len(report_zero.tank_summaries) == 0

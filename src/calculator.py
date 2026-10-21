@@ -1,50 +1,8 @@
-"""評価額・含み損益・DC仮想積立口数計算エンジン。"""
+"""評価額・含み損益・アセットアロケーション計算エンジン。"""
 
 from __future__ import annotations
 
-from datetime import date
-
 from src.models import HoldingEvaluation, PortfolioItem, PortfolioReport, TankSummary
-
-
-def calculate_elapsed_months(base_date: date, current_date: date) -> int:
-    """基準日から現在日までの経過月数を計算する。
-
-    Args:
-        base_date: 積立開始基準日。
-        current_date: 評価基準日。
-
-    Returns:
-        経過月数（0以上の整数）。
-    """
-    diff_months = (current_date.year - base_date.year) * 12 + (current_date.month - base_date.month)
-    return max(0, diff_months)
-
-
-def calculate_dc_virtual_units(
-    base_date: date,
-    current_date: date,
-    nav: float,
-    monthly_amount: int = 20_000,
-) -> float:
-    """DC口座における基準日からの経過月数と毎月積立額に応じた仮想購入口数を算出する。
-
-    Args:
-        base_date: DC積立基準日（例: 2025-01-01）。
-        current_date: 現在または評価基準日。
-        nav: 基準価額（10,000口あたり）。
-        monthly_amount: 月次拠出金額（デフォルト: 20,000円）。
-
-    Returns:
-        仮想購入口数 (float)。navが0以下の場合は0.0。
-    """
-    if nav <= 0.0:
-        return 0.0
-
-    elapsed_months = calculate_elapsed_months(base_date, current_date)
-    total_contribution = elapsed_months * monthly_amount
-    # 口数換算 = (金額 / (nav / 10000)) = (金額 * 10000) / nav
-    return (total_contribution * 10_000.0) / nav
 
 
 def render_text_bar(ratio: float, width: int = 10) -> str:
@@ -68,33 +26,19 @@ def evaluate_portfolio(
     items: list[PortfolioItem],
     nav_map: dict[str, float],
     as_of_date: str,
-    dc_base_date: date = date(2025, 1, 1),
-    current_date: date | None = None,
-    dc_target_code: str | None = None,
 ) -> PortfolioReport:
     """保有資産リストと基準価額マップから全体の評価レポートを算出する。
+
+    各銘柄の保有口数（units）に基づいて評価額（units * nav / 10,000）を算出する。
 
     Args:
         items: 保有銘柄リスト。
         nav_map: ファンドコード -> 基準価額マップ。
         as_of_date: 基準価額の取得日付文字列。
-        dc_base_date: DC仮想積立の基準日。
-        current_date: 経過月数算出用の現在日（None時はdc_base_date同等または本日）。
-        dc_target_code: DC仮想積立を適用するファンドコード（None時はDC口座の先頭銘柄）。
 
     Returns:
         評価レポート（PortfolioReport）。
     """
-    effective_current_date = current_date or date.today()
-
-    # DC口座で仮想積立を適用する対象コードの確定
-    target_dc_code = dc_target_code
-    if target_dc_code is None:
-        for item in items:
-            if item.account.upper() == "DC":
-                target_dc_code = item.code
-                break
-
     evaluations: list[HoldingEvaluation] = []
     account_valuation_map: dict[str, int] = {}
     account_cost_map: dict[str, int] = {}
@@ -102,16 +46,7 @@ def evaluate_portfolio(
 
     for item in items:
         nav = nav_map.get(item.code, 10_000.0)
-        virtual_units = 0.0
-
-        if item.account.upper() == "DC" and (target_dc_code is None or item.code == target_dc_code):
-            virtual_units = calculate_dc_virtual_units(
-                base_date=dc_base_date,
-                current_date=effective_current_date,
-                nav=nav,
-            )
-
-        effective_units = item.units + virtual_units
+        effective_units = item.units
         valuation = int(round(effective_units * (nav / 10_000.0)))
 
         profit_loss: int | None = None
@@ -124,7 +59,7 @@ def evaluate_portfolio(
         eval_item = HoldingEvaluation(
             item=item,
             nav=nav,
-            virtual_units=virtual_units,
+            virtual_units=0.0,
             effective_units=effective_units,
             valuation=valuation,
             profit_loss=profit_loss,

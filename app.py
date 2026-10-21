@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
 
 # Deterministic sys.path configuration
@@ -47,11 +46,6 @@ def cached_fetch_nav_and_names(
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 設定 & 管理")
-    dc_base_input = st.date_input(
-        "DC仮想積立 基準日",
-        value=date(2025, 1, 1),
-        help="DC口座で指定銘柄の仮想購入口数を算出するための積立開始日",
-    )
 
     force_refresh = st.button("🔄 基準価額データを再取得", use_container_width=True)
     if force_refresh:
@@ -144,7 +138,6 @@ report = evaluate_portfolio(
     items=hydrated_items,
     nav_map=nav_map,
     as_of_date=as_of_date,
-    dc_base_date=dc_base_input,
 )
 
 # ---------------------------------------------------------
@@ -252,8 +245,6 @@ with tab_dashboard:
             else "-"
         )
         units_display = f"{h.effective_units:,.1f}"
-        if h.virtual_units > 0:
-            units_display += " *"
 
         detail_rows.append(
             {
@@ -283,8 +274,6 @@ with tab_dashboard:
         hide_index=True,
     )
 
-    if any(h.virtual_units > 0 for h in report.holdings):
-        st.caption("※ 保有口数末尾の '*' はDC口座の経過月数に応じた仮想積立加山口数を含みます。")
 
 with tab_master:
     st.subheader("📝 保有資産マスター管理 (portfolio.csv)")

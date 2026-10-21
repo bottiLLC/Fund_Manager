@@ -166,8 +166,6 @@ def format_cli_report(report: PortfolioReport) -> str:
             pl_display = "-"
 
         units_str = f"{h.effective_units:,.1f}"
-        if h.virtual_units > 0:
-            units_str += "*"
 
         detail_line = (
             pad_display(h.item.account, 8)
@@ -185,8 +183,4 @@ def format_cli_report(report: PortfolioReport) -> str:
         lines.append(detail_line)
 
     lines.append(SEPARATOR_LINE)
-    if any(h.virtual_units > 0 for h in report.holdings):
-        lines.append("  ※ 口数末尾の '*' はDC口座の経過月数に応じた仮想積立加山口数を含みます。")
-        lines.append(SEPARATOR_LINE)
-
     return "\n".join(lines)

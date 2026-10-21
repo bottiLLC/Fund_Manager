@@ -19,7 +19,7 @@ def test_cli_main_success(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
         encoding="utf-8",
     )
 
-    test_args = ["cli.py", "--csv", str(csv_file), "--dc-base-date", "2025-01-01"]
+    test_args = ["cli.py", "--csv", str(csv_file)]
     with patch.object(sys, "argv", test_args):
         ret = main()
 
@@ -27,17 +27,6 @@ def test_cli_main_success(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     captured = capsys.readouterr()
     assert "投資信託 ポートフォリオ評価ダッシュボード" in captured.out
     assert "全世界株" in captured.out
-
-
-def test_cli_main_invalid_date(capsys: pytest.CaptureFixture[str]) -> None:
-    """不正な日付引数でCLIが終了コード1を返すことを検証する。"""
-    test_args = ["cli.py", "--dc-base-date", "invalid-date"]
-    with patch.object(sys, "argv", test_args):
-        ret = main()
-
-    assert ret == 1
-    captured = capsys.readouterr()
-    assert "エラー: --dc-base-date の日付形式が不正です" in captured.err
 
 
 def test_cli_main_csv_load_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

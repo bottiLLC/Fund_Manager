@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
 from pathlib import Path
 
 # Deterministic sys.path configuration for top-level entry point
@@ -35,32 +34,12 @@ def parse_arguments() -> argparse.Namespace:
         default=_PROJECT_ROOT / "data" / "portfolio.csv",
         help="保有資産CSVファイルへのパス (デフォルト: ./data/portfolio.csv)",
     )
-    parser.add_argument(
-        "--dc-base-date",
-        type=str,
-        default="2025-01-01",
-        help="DC仮想積立の開始基準日 (YYYY-MM-DD, デフォルト: 2025-01-01)",
-    )
-    parser.add_argument(
-        "--dc-code",
-        type=str,
-        default=None,
-        help="DC仮想積立を適用するファンドコード (未指定時はDC口座の先頭銘柄)",
-    )
     return parser.parse_args()
 
 
 def main() -> int:
     """メイン実行処理。"""
     args = parse_arguments()
-
-    try:
-        dc_base = date.fromisoformat(args.dc_base_date)
-    except ValueError:
-        sys.stderr.write(
-            f"エラー: --dc-base-date の日付形式が不正です (指定値: {args.dc_base_date}, 形式: YYYY-MM-DD)\n"
-        )
-        return 1
 
     try:
         portfolio_items = load_portfolio_csv(args.csv)
@@ -92,8 +71,6 @@ def main() -> int:
         items=hydrated_items,
         nav_map=nav_map,
         as_of_date=as_of_date,
-        dc_base_date=dc_base,
-        dc_target_code=args.dc_code,
     )
 
     output_text = format_cli_report(report)
