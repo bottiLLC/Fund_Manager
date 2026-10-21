@@ -252,3 +252,20 @@ def save_portfolio_csv(file_path: Path, items: list[PortfolioItem]) -> None:
     finally:
         if temp_path.exists():
             temp_path.unlink()
+
+
+def delete_portfolio_items_by_indices(
+    existing_items: list[PortfolioItem],
+    indices_to_delete: set[int] | list[int],
+) -> list[PortfolioItem]:
+    """指定された行インデックスの銘柄を除外した新規リストを生成する。
+
+    Args:
+        existing_items: 現在登録済みのPortfolioItemリスト。
+        indices_to_delete: 削除対象の0始まりインデックス集合。
+
+    Returns:
+        削除対象が除外されたPortfolioItemリスト。
+    """
+    delete_set = set(indices_to_delete)
+    return [item for idx, item in enumerate(existing_items) if idx not in delete_set]

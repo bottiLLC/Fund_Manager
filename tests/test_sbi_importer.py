@@ -266,58 +266,54 @@ def test_resolve_candidates_partial_match_and_unresolved() -> None:
     assert candidates[2].validation_error == "投信協会コードが未解決です"
 
 
-def test_merge_candidates_into_portfolio_upsert() -> None:
+def test_merge_candidates_into_portfolio_append() -> None:
+    # 既存: 個人口座で 03311187 (S&P500) を保有
     existing = [
         PortfolioItem(
             account="NISA",
             code="03311187",
             isin="JP90C000GKC6",
-            name="旧S&P500",
+            name="S&P500個人",
             units=100.0,
             cost_basis=2000,
-        ),
-        PortfolioItem(
-            account="特定",
-            code="0331418A",
-            isin="JP90C000H1T1",
-            name="オルカン",
-            units=500.0,
-            cost_basis=10000,
-        ),
+        )
     ]
-    candidate1 = ImportCandidate(
+    # 追加候補: 法人口座で同一の 03311187 (S&P500) を保有
+    candidate_corp = ImportCandidate(
+        source_record=SbiRawRecord(
+            raw_account_section="法人",
+            fund_name="S&P500法人",
+            quantity=500.0,
+            acquisition_price=30000.0,
+        ),
+        target_account="法人",
+        resolved_code="03311187",
+        resolved_isin="JP90C000GKC6",
+        is_resolved=True,
+    )
+    # 追加候補: 同一口座(NISA)で別枠・別行として購入された分
+    candidate_nisa_add = ImportCandidate(
         source_record=SbiRawRecord(
             raw_account_section="NISA",
-            fund_name="新S&P500",
-            quantity=200.0,
-            acquisition_price=30000.0,
+            fund_name="S&P500個人追加分",
+            quantity=50.0,
+            acquisition_price=31000.0,
         ),
         target_account="NISA",
         resolved_code="03311187",
         resolved_isin="JP90C000GKC6",
         is_resolved=True,
     )
-    candidate2 = ImportCandidate(
-        source_record=SbiRawRecord(
-            raw_account_section="法人",
-            fund_name="新規先進国",
-            quantity=300.0,
-            acquisition_price=15000.0,
-        ),
-        target_account="法人",
-        resolved_code="0331124A",
-        resolved_isin="JP90C000R9Z9",
-        is_resolved=True,
-    )
 
     merged = merge_candidates_into_portfolio(
-        existing, [candidate1, candidate2], merge_mode=MergeMode.UPSERT
+        existing, [candidate_corp, candidate_nisa_add], merge_mode=MergeMode.APPEND
     )
 
+    # 同一銘柄であってもまとめず、3行すべてが独立して保持される
     assert len(merged) == 3
-    nisa_item = next(it for it in merged if it.account == "NISA" and it.code == "03311187")
-    assert nisa_item.units == 200.0
-    assert nisa_item.cost_basis == 600
+    assert merged[0].account == "NISA" and merged[0].units == 100.0
+    assert merged[1].account == "法人" and merged[1].units == 500.0
+    assert merged[2].account == "NISA" and merged[2].units == 50.0
 
 
 def test_merge_candidates_into_portfolio_replace_all() -> None:
@@ -351,53 +347,6 @@ def test_merge_candidates_into_portfolio_replace_all() -> None:
     assert len(merged) == 1
     assert merged[0].account == "法人"
     assert merged[0].code == "0331124A"
-
-
-def test_merge_candidates_into_portfolio_add_only() -> None:
-    existing = [
-        PortfolioItem(
-            account="NISA",
-            code="03311187",
-            isin="JP90C000GKC6",
-            name="旧S&P500",
-            units=100.0,
-            cost_basis=2000,
-        )
-    ]
-    candidate_existing = ImportCandidate(
-        source_record=SbiRawRecord(
-            raw_account_section="NISA",
-            fund_name="新S&P500",
-            quantity=200.0,
-            acquisition_price=30000.0,
-        ),
-        target_account="NISA",
-        resolved_code="03311187",
-        resolved_isin="JP90C000GKC6",
-        is_resolved=True,
-    )
-    candidate_new = ImportCandidate(
-        source_record=SbiRawRecord(
-            raw_account_section="法人",
-            fund_name="新規先進国",
-            quantity=300.0,
-            acquisition_price=15000.0,
-        ),
-        target_account="法人",
-        resolved_code="0331124A",
-        resolved_isin="JP90C000R9Z9",
-        is_resolved=True,
-    )
-
-    merged = merge_candidates_into_portfolio(
-        existing,
-        [candidate_existing, candidate_new],
-        merge_mode=MergeMode.ADD_ONLY,
-    )
-
-    assert len(merged) == 2
-    nisa_item = next(it for it in merged if it.account == "NISA" and it.code == "03311187")
-    assert nisa_item.units == 100.0
 
 
 def test_merge_candidates_unresolved_raises_value_error() -> None:

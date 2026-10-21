@@ -19,7 +19,13 @@ from src.calculator import evaluate_portfolio
 from src.formatter import format_rate, format_yen
 from src.models import PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
-from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv, save_portfolio_csv
+from src.portfolio_loader import (
+    PRESET_FUNDS,
+    delete_portfolio_items_by_indices,
+    load_portfolio_csv,
+    parse_portfolio_csv_content,
+    save_portfolio_csv,
+)
 from src.sbi_importer import (
     ImportCandidate,
     MergeMode,
@@ -436,15 +442,97 @@ with tab_master:
         except Exception as save_err:
             st.error(f"保存エラー: {save_err}")
 
+    # ---------------------------------------------------------
+    # Zone 2-B: 選択削除機能
+    # ---------------------------------------------------------
+    st.divider()
+    st.markdown("##### 🗑️ 登録銘柄の選択削除")
+    st.caption(
+        "不要になった銘柄を選択して一括削除できます（削除前に事前バックアップが自動作成されます）。"
+    )
+
+    if portfolio_items:
+        delete_options = list(range(len(portfolio_items)))
+        selected_delete_indices = st.multiselect(
+            "削除対象の銘柄を選択",
+            options=delete_options,
+            format_func=lambda i: (
+                f"[{portfolio_items[i].account}] {portfolio_items[i].name or portfolio_items[i].code} "
+                f"(コード: {portfolio_items[i].code}, 口数: {portfolio_items[i].units:,.0f})"
+            ),
+            key="portfolio_items_to_delete",
+        )
+        if selected_delete_indices and st.button(
+            f"🗑️ 選択した {len(selected_delete_indices)} 件の銘柄を削除",
+            type="secondary",
+            use_container_width=True,
+        ):
+            run_backup(app_name="pre_delete")
+            remaining_items = delete_portfolio_items_by_indices(
+                portfolio_items, selected_delete_indices
+            )
+            save_portfolio_csv(portfolio_csv_path, remaining_items)
+            st.cache_data.clear()
+            st.success(f"{len(selected_delete_indices)} 件の銘柄を削除しました。")
+            st.rerun()
+
+    # ---------------------------------------------------------
+    # Zone 2-C: 標準ポートフォリオCSV直接アップロード
+    # ---------------------------------------------------------
+    st.divider()
+    st.markdown("##### 📄 保有資産CSV (portfolio.csv) アップロード")
+    st.caption("標準フォーマットのCSVをアップロードし、追記または洗い替えで登録します。")
+
+    std_col1, std_col2 = st.columns([2, 1])
+    with std_col1:
+        uploaded_std_csv = st.file_uploader(
+            "portfolio.csv を選択",
+            type=["csv"],
+            key="std_portfolio_csv_uploader",
+            help="account,code,isin,units,cost_basis ヘッダを含むCSVに対応しています。",
+        )
+    with std_col2:
+        std_upload_mode = st.radio(
+            "反映方式",
+            options=["append", "replace_all"],
+            format_func=lambda m: (
+                "➕ 追記 (既存を維持)" if m == "append" else "🔄 洗い替え (全置換)"
+            ),
+            key="std_csv_mode_radio",
+        )
+
+    if uploaded_std_csv is not None and st.button(
+        "📥 CSVを取り込んでポートフォリオに反映",
+        type="primary",
+        key="btn_apply_std_csv",
+        use_container_width=True,
+    ):
+        try:
+            content_str = decode_csv_bytes(uploaded_std_csv.getvalue())
+            incoming_std_items = parse_portfolio_csv_content(content_str)
+
+            run_backup(app_name="pre_std_csv_upload")
+            if std_upload_mode == "replace_all":
+                final_std_items = incoming_std_items
+            else:
+                final_std_items = [*portfolio_items, *incoming_std_items]
+
+            save_portfolio_csv(portfolio_csv_path, final_std_items)
+            st.cache_data.clear()
+            st.success(f"CSVを正常に取り込みました（反映後合計: {len(final_std_items)} 件）。")
+            st.rerun()
+        except Exception as std_ex:
+            st.error(f"CSV取り込みエラー: {std_ex}")
+
     st.divider()
 
     # ---------------------------------------------------------
-    # Zone 2-C: SBI証券CSVインポート
+    # Zone 2-D: SBI証券CSVインポート
     # ---------------------------------------------------------
     st.subheader("📥 SBI証券CSVポートフォリオインポート")
     st.caption(
         "SBI証券のポートフォリオ管理画面からエクスポートしたCSVファイルを取り込み、"
-        "銘柄名からの投信協会コード自動逆引き、事前バックアップ、および柔軟なマージ保存を実行します。"
+        "銘柄名からの投信協会コード自動逆引き、事前バックアップ、および洗い替え/追記保存を実行します。"
     )
 
     sbi_file = st.file_uploader(
@@ -586,18 +674,20 @@ with tab_master:
                 ]
                 st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
 
-                st.markdown("##### 3. 統合ポリシーの選択 & インポート確定")
+                st.markdown("##### 3. 反映方式の選択 & インポート確定")
                 merge_mode_selected = st.radio(
-                    "マージ戦略",
+                    "反映方式",
                     options=[
-                        MergeMode.UPSERT,
-                        MergeMode.ADD_ONLY,
+                        MergeMode.APPEND,
                         MergeMode.REPLACE_ALL,
                     ],
                     format_func=lambda m: {
-                        MergeMode.UPSERT: "【UPSERT（推奨）】一致する (口座, コード) は最新データで上書きし、新規銘柄は追加",
-                        MergeMode.ADD_ONLY: "【新規のみ追加】既存に存在しない銘柄のみを追加し、既存の口数・簿価は維持",
-                        MergeMode.REPLACE_ALL: "【全件洗い替え】既存の portfolio.csv を全破棄し、インポートデータで完全置換",
+                        MergeMode.APPEND: (
+                            "【➕ 追記方式】既存の保有資産を維持し、今回分を追加（法人・個人の同一銘柄も別行として独立保持）"
+                        ),
+                        MergeMode.REPLACE_ALL: (
+                            "【🔄 洗い替え方式】既存の portfolio.csv を全消去し、今回アップロードされたCSV内容で完全置換"
+                        ),
                     }[m],
                 )
 

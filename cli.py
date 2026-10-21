@@ -50,6 +50,12 @@ def parse_arguments() -> argparse.Namespace:
         default=None,
         help="SBI証券ポートフォリオCSVを取り込んで portfolio.csv を更新する",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["append", "replace"],
+        default="append",
+        help="インポート方式: append (追記・デフォルト) または replace (洗い替え)",
+    )
     return parser.parse_args()
 
 
@@ -95,10 +101,11 @@ def main() -> int:
                 return 1
 
             run_backup(app_name="pre_sbi_import")
+            merge_mode = MergeMode.REPLACE_ALL if args.mode == "replace" else MergeMode.APPEND
             updated = merge_candidates_into_portfolio(
                 existing_items=portfolio_items,
                 resolved_candidates=candidates,
-                merge_mode=MergeMode.UPSERT,
+                merge_mode=merge_mode,
             )
             save_portfolio_csv(args.csv, updated)
             portfolio_items = updated

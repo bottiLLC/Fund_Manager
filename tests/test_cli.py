@@ -75,6 +75,53 @@ def test_cli_main_import_sbi_success(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "SBI証券CSVを正常にインポートしました" in captured.out
 
 
+def test_cli_main_import_sbi_modes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """CLIでの --mode append と --mode replace の動作を検証する。"""
+    csv_file = tmp_path / "portfolio.csv"
+    initial_content = (
+        "account,code,isin,units,cost_basis\n個人,03311187,JP90C000H1T1,5000.0,1000000\n"
+    )
+    csv_file.write_text(initial_content, encoding="utf-8")
+
+    sbi_csv = tmp_path / "sbi.csv"
+    sbi_content = """\
+"投資信託（金額/特定口座）"
+"ファンド名","買付日","数量","取得単価","現在値","損益","評価額"
+"ｅＭＡＸＩＳ Ｓｌｉｍ 全世界株式（オール・カントリー）","----/--/--",10000,20000,25000,0,0
+"""
+    sbi_csv.write_text(sbi_content, encoding="cp932")
+
+    # 1. append モード (既存1件 + 新規1件 = 2件)
+    test_args_append = [
+        "cli.py",
+        "--csv",
+        str(csv_file),
+        "--import-sbi",
+        str(sbi_csv),
+        "--mode",
+        "append",
+    ]
+    with patch.object(sys, "argv", test_args_append):
+        ret_append = main()
+    assert ret_append == 0
+    assert "SBI証券CSVを正常にインポートしました: 2 件" in capsys.readouterr().out
+
+    # 2. replace モード (全置換で新規1件のみになる)
+    test_args_replace = [
+        "cli.py",
+        "--csv",
+        str(csv_file),
+        "--import-sbi",
+        str(sbi_csv),
+        "--mode",
+        "replace",
+    ]
+    with patch.object(sys, "argv", test_args_replace):
+        ret_replace = main()
+    assert ret_replace == 0
+    assert "SBI証券CSVを正常にインポートしました: 1 件" in capsys.readouterr().out
+
+
 def test_cli_main_import_sbi_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """CLIでの各種エラー（ファイル不在、空明細、未解決銘柄、例外）を検証する。"""
     csv_file = tmp_path / "portfolio.csv"

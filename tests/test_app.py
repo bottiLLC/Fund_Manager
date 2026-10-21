@@ -96,3 +96,22 @@ def test_app_sbi_file_uploader_rendered() -> None:
     uploaders = at.file_uploader
     assert len(uploaders) >= 2
     assert any("SBI" in u.label for u in uploaders)
+
+
+def test_app_master_tab_controls() -> None:
+    """マスター管理タブ内の選択削除UIおよび標準CSVアップローダーの存在を検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # 選択削除用 multiselect の存在確認
+    multiselects = at.multiselect
+    assert any("削除対象の銘柄を選択" in m.label for m in multiselects)
+
+    # 標準 portfolio.csv アップローダーの存在確認
+    uploaders = at.file_uploader
+    assert any("portfolio.csv を選択" in u.label for u in uploaders)
+
+    # 反映方式のラジオボタン存在確認
+    radios = at.radio
+    assert any("反映方式" in r.label for r in radios)

@@ -189,3 +189,29 @@ def test_parse_portfolio_csv_unknown_columns_and_full_preset() -> None:
     assert items[0].name == "カスタム名称"
     assert items[1].code == "99999999"
     assert items[1].name == "非プリセット銘柄"
+
+
+def test_delete_portfolio_items_by_indices() -> None:
+    """行インデックスによる選択削除ロジックを検証する。"""
+    from src.models import PortfolioItem
+    from src.portfolio_loader import delete_portfolio_items_by_indices
+
+    items = [
+        PortfolioItem(account="法人", code="03311187", units=100.0),
+        PortfolioItem(account="NISA", code="0331418A", units=200.0),
+        PortfolioItem(account="特定", code="03319172", units=300.0),
+    ]
+
+    # 1. 複数インデックスの削除 (0, 2)
+    remaining = delete_portfolio_items_by_indices(items, {0, 2})
+    assert len(remaining) == 1
+    assert remaining[0].account == "NISA"
+    assert remaining[0].code == "0331418A"
+
+    # 2. 空集合の削除（変更なし）
+    remaining_none = delete_portfolio_items_by_indices(items, set())
+    assert len(remaining_none) == 3
+
+    # 3. 範囲外インデックス（無視される）
+    remaining_out_of_range = delete_portfolio_items_by_indices(items, [99])
+    assert len(remaining_out_of_range) == 3

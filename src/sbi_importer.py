@@ -39,9 +39,8 @@ DEFAULT_ACCOUNT_MAP: Final[dict[str, str]] = {
 class MergeMode(StrEnum):
     """インポート時の既存データ統合ポリシー。"""
 
-    UPSERT = "upsert"  # 一致する(account, code)は更新、新規は追加
-    REPLACE_ALL = "replace_all"  # 全件をインポートデータで置換
-    ADD_ONLY = "add_only"  # 既存にない(account, code)のみ追加
+    REPLACE_ALL = "replace_all"  # 洗い替え: 既存データを全破棄し、今回分で完全置換
+    APPEND = "append"  # 追記: 既存データを保持し、同一銘柄であっても独立行として末尾追加
 
 
 class SbiRawRecord(BaseModel):
@@ -382,14 +381,14 @@ def resolve_candidates(
 def merge_candidates_into_portfolio(
     existing_items: list[PortfolioItem],
     resolved_candidates: list[ImportCandidate],
-    merge_mode: MergeMode = MergeMode.UPSERT,
+    merge_mode: MergeMode = MergeMode.APPEND,
 ) -> list[PortfolioItem]:
     """解決済みのインポート候補を既存ポートフォリオと統合する。
 
     Args:
         existing_items: 既存のPortfolioItemリスト。
         resolved_candidates: コード解決済みのImportCandidateリスト。
-        merge_mode: マージ戦略（UPSERT / REPLACE_ALL / ADD_ONLY）。
+        merge_mode: マージ戦略（APPEND: 追記 / REPLACE_ALL: 洗い替え）。
 
     Returns:
         統合後のPortfolioItemリスト。
@@ -418,21 +417,5 @@ def merge_candidates_into_portfolio(
     if merge_mode == MergeMode.REPLACE_ALL:
         return incoming_items
 
-    # 既存アイテムを (account, code) をキーとする辞書で管理
-    # 順序を維持するため dict を使用
-    item_map: dict[tuple[str, str], PortfolioItem] = {
-        (item.account, item.code): item for item in existing_items
-    }
-
-    if merge_mode == MergeMode.UPSERT:
-        for inc in incoming_items:
-            key = (inc.account, inc.code)
-            item_map[key] = inc
-        return list(item_map.values())
-
-    # ADD_ONLY モード
-    for inc in incoming_items:
-        key = (inc.account, inc.code)
-        if key not in item_map:
-            item_map[key] = inc
-    return list(item_map.values())
+    # APPEND モード: 同一銘柄・同一口座であってもまとめず、末尾に追記する
+    return [*existing_items, *incoming_items]
