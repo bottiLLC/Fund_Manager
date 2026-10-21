@@ -178,3 +178,17 @@ def test_fetch_latest_nav_cache_no_target_codes_falls_back(tmp_path: Path) -> No
 
     assert "(Fallback)" in as_of_date
     assert nav_map["03311181"] == FALLBACK_NAV_MAPPING["03311181"]
+
+
+def test_fetch_latest_nav_fallback_alphanumeric_codes(tmp_path: Path) -> None:
+    """英字を含むファンドコードでも内蔵フォールバックから正しく基準価額が取得されることを検証する。"""
+    cache_dir = tmp_path / "cache"
+    with patch("requests.get", side_effect=requests.RequestException("Network down")):
+        as_of_date, nav_map = fetch_latest_nav(
+            target_codes={"0331118A", "0331418A"},
+            cache_dir=cache_dir,
+        )
+
+    assert "(Fallback)" in as_of_date
+    assert nav_map["0331118A"] == 25842.0
+    assert nav_map["0331418A"] == 25842.0

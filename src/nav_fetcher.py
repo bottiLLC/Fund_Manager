@@ -15,9 +15,10 @@ DEFAULT_TOUSHIN_NAV_URL: Final[str] = (
     "https://toushin-lib.fwg.ne.jp/FdsWeb/view/download/LST0000001.csv"
 )
 
-# ネットワーク非接続時や404エラー時のフォールバック用内蔵基準価額
 FALLBACK_NAV_MAPPING: Final[dict[str, float]] = {
     "03311181": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー)
+    "0331118A": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー) 協会コード
+    "0331418A": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー) 投信コード
     "03314187": 31250.0,  # eMAXIS Slim 米国株式(S&P500)
     "03312184": 26900.0,  # eMAXIS Slim 先進国株式インデックス
 }

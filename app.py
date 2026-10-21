@@ -54,7 +54,23 @@ with st.sidebar:
     force_refresh = st.button("🔄 基準価額データを再取得", use_container_width=True)
     if force_refresh:
         st.cache_data.clear()
-        st.success("キャッシュをクリアしました。最新データを再取得します。")
+        st.session_state["cache_cleared_msg"] = "キャッシュをクリアし、最新データを再取得しました。"
+        st.rerun()
+
+    if "cache_cleared_msg" in st.session_state:
+        st.success(str(st.session_state.pop("cache_cleared_msg")))
+
+    uploaded_nav_csv = st.file_uploader(
+        "最新基準価額CSVを手動登録",
+        type=["csv"],
+        help="最新の基準価額CSVをアップロードして ./data/cache/latest_nav.csv を更新します。",
+    )
+    if uploaded_nav_csv is not None:
+        save_target = _PROJECT_ROOT / "data" / "cache" / "latest_nav.csv"
+        save_target.parent.mkdir(parents=True, exist_ok=True)
+        save_target.write_bytes(uploaded_nav_csv.getvalue())
+        st.cache_data.clear()
+        st.session_state["cache_cleared_msg"] = "最新基準価額CSVをキャッシュに保存しました。"
         st.rerun()
 
     st.divider()
@@ -115,6 +131,17 @@ report = evaluate_portfolio(
     as_of_date=as_of_date,
     dc_base_date=dc_base_input,
 )
+
+if "(Fallback)" in report.as_of_date:
+    st.warning(
+        "⚠️ **内蔵フォールバック値を使用中**: 投信協会URLからのデータ取得に失敗（HTTP 404等）したため、"
+        "内蔵の固定値データを表示しています。「再取得」を押しても外部通信が失敗するため値は変化しません。"
+        "手動で最新データを反映する場合は、サイドバーの「最新基準価額CSVを手動登録」をご利用ください。"
+    )
+elif "(Cached)" in report.as_of_date:
+    st.info(
+        f"ℹ️ **ローカルキャッシュ使用中**: `./data/cache/latest_nav.csv` の基準価額を表示しています（基準日: {report.as_of_date}）。"
+    )
 
 # 1. KPI メトリクス表示
 col1, col2, col3 = st.columns(3)

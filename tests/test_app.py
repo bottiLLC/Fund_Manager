@@ -53,3 +53,20 @@ def test_app_csv_load_error() -> None:
         assert not at.exception
         assert len(at.error) >= 1
         assert "保有資産CSVの読み込みエラー: テストエラー" in at.error[0].value
+
+
+def test_app_fallback_warning_rendered() -> None:
+    """フォールバックデータ使用時に警告バナーが表示されることを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+    warnings = [w.value for w in at.warning]
+    assert any("内蔵フォールバック値を使用中" in w for w in warnings)
+
+
+def test_app_file_uploader_rendered() -> None:
+    """基準価額CSVのファイルアップローダーが存在することを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+    assert len(at.sidebar.file_uploader) >= 1
