@@ -55,6 +55,50 @@ def test_portfolio_item_invalid_code(invalid_code: str) -> None:
         )
 
 
+def test_portfolio_item_isin_validation() -> None:
+    """ISINコードの正常系および異常系バリデーションを検証する。"""
+    # 正常系（空文字または12桁半角英数大文字）
+    item1 = PortfolioItem(
+        account="NISA",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        units=100.0,
+    )
+    assert item1.isin == "JP90C000H1T1"
+
+    item2 = PortfolioItem(
+        account="NISA",
+        code="0331418A",
+        isin="",
+        units=100.0,
+    )
+    assert item2.isin == ""
+
+    # 異常系
+    with pytest.raises(ValidationError, match="ISINコードは12桁の半角英数字である必要があります"):
+        PortfolioItem(
+            account="NISA",
+            code="0331418A",
+            isin="invalid_isin",
+            units=100.0,
+        )
+
+
+def test_fund_info_model() -> None:
+    """FundInfoモデルの生成と属性を検証する。"""
+    from src.models import FundInfo
+
+    fund = FundInfo(
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="eMAXIS Slim 全世界株式",
+        nav=37859.0,
+        as_of_date="2026-10-20",
+    )
+    assert fund.code == "0331418A"
+    assert fund.nav == 37859.0
+
+
 def test_portfolio_item_invalid_units_or_cost() -> None:
     """units <= 0 や cost_basis < 0 でValidationErrorが発生することを検証する。"""
     with pytest.raises(ValidationError):

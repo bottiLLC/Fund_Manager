@@ -8,6 +8,7 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FUND_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^[0-9A-Z]{8}$")
+ISIN_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
 
 
 class PortfolioItem(BaseModel):
@@ -19,7 +20,8 @@ class PortfolioItem(BaseModel):
         ..., min_length=1, description="口座種別（法人, NISA, 特定, iDeCo, DCなど）"
     )
     code: str = Field(..., description="投信協会の8桁ファンドコード（半角英大文字・数字）")
-    name: str = Field(..., min_length=1, description="銘柄略称")
+    isin: str = Field(default="", description="国際証券識別番号（12桁ISINコード）")
+    name: str = Field(default="", description="銘柄略称（Webから自動補完可能）")
     units: float = Field(..., gt=0.0, description="保有口数")
     cost_basis: int = Field(
         default=0, ge=0, description="取得簿価の合計金額（0または空欄は簿価管理不要）"
@@ -33,6 +35,27 @@ class PortfolioItem(BaseModel):
             msg = f"ファンドコードは8桁の半角英数字（大文字）である必要があります: {v}"
             raise ValueError(msg)
         return cleaned
+
+    @field_validator("isin")
+    @classmethod
+    def validate_isin_code(cls, v: str) -> str:
+        cleaned = v.strip()
+        if cleaned and not ISIN_CODE_REGEX.match(cleaned):
+            msg = f"ISINコードは12桁の半角英数字である必要があります: {v}"
+            raise ValueError(msg)
+        return cleaned
+
+
+class FundInfo(BaseModel):
+    """Webから取得した投資信託の基準情報。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str = Field(..., description="投信協会コード")
+    isin: str = Field(..., description="ISINコード")
+    name: str = Field(..., description="銘柄正式名称または略称")
+    nav: float = Field(..., gt=0.0, description="最新基準価額（10,000口あたり）")
+    as_of_date: str = Field(..., description="基準日（YYYY-MM-DD）")
 
 
 class HoldingEvaluation(BaseModel):

@@ -20,8 +20,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from src.calculator import evaluate_portfolio
 from src.formatter import format_cli_report
-from src.nav_fetcher import fetch_latest_nav
-from src.portfolio_loader import load_portfolio_csv
+from src.nav_fetcher import fetch_latest_nav_and_names
+from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -68,16 +68,28 @@ def main() -> int:
         sys.stderr.write(f"エラー: 保有資産CSVの読み込みに失敗しました: {e}\n")
         return 1
 
-    target_codes = {item.code for item in portfolio_items}
+    targets = {item.code: item.isin for item in portfolio_items}
     cache_dir = _PROJECT_ROOT / "data" / "cache"
 
-    as_of_date, nav_map = fetch_latest_nav(
-        target_codes=target_codes,
+    as_of_date, nav_map, name_map = fetch_latest_nav_and_names(
+        targets=targets,
         cache_dir=cache_dir,
     )
 
+    hydrated_items = [
+        item.model_copy(
+            update={
+                "name": name_map.get(item.code)
+                or item.name
+                or PRESET_FUNDS.get(item.code, {}).get("name")
+                or f"ファンド {item.code}"
+            }
+        )
+        for item in portfolio_items
+    ]
+
     report = evaluate_portfolio(
-        items=portfolio_items,
+        items=hydrated_items,
         nav_map=nav_map,
         as_of_date=as_of_date,
         dc_base_date=dc_base,

@@ -57,11 +57,18 @@ def test_app_csv_load_error() -> None:
 
 def test_app_fallback_warning_rendered() -> None:
     """フォールバックデータ使用時に警告バナーが表示されることを検証する。"""
-    at = AppTest.from_file(_APP_PATH, default_timeout=30)
-    at.run()
-    assert not at.exception
-    warnings = [w.value for w in at.warning]
-    assert any("内蔵フォールバック値を使用中" in w for w in warnings)
+    import streamlit as st
+
+    st.cache_data.clear()
+    with patch(
+        "src.nav_fetcher.fetch_latest_nav_and_names",
+        return_value=("2026-10-21 (Fallback)", {"0331418A": 37859.0}, {"0331418A": "テスト"}),
+    ):
+        at = AppTest.from_file(_APP_PATH, default_timeout=30)
+        at.run()
+        assert not at.exception
+        warnings = [w.value for w in at.warning]
+        assert any("内蔵フォールバック値を使用中" in w for w in warnings)
 
 
 def test_app_file_uploader_rendered() -> None:
@@ -70,3 +77,11 @@ def test_app_file_uploader_rendered() -> None:
     at.run()
     assert not at.exception
     assert len(at.sidebar.file_uploader) >= 1
+
+
+def test_app_tabs_rendered() -> None:
+    """ダッシュボードおよびマスター管理タブが正しく描画されることを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+    assert len(at.tabs) == 2

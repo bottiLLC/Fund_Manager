@@ -102,4 +102,90 @@ def test_load_portfolio_csv_creates_default_if_not_exists(tmp_path: Path) -> Non
     # Assert
     assert target_file.exists()
     assert len(items) >= 1
+    assert items[0].code == "0331418A"
+
+
+def test_save_and_load_portfolio_csv_roundtrip(tmp_path: Path) -> None:
+    """save_portfolio_csvによる保存とload_portfolio_csvによる復元を検証する。"""
+    from src.models import PortfolioItem
+    from src.portfolio_loader import save_portfolio_csv
+
+    target_file = tmp_path / "saved.csv"
+    items = [
+        PortfolioItem(
+            account="法人",
+            code="0331418A",
+            isin="JP90C000H1T1",
+            name="全世界株式",
+            units=1000.5,
+            cost_basis=20000,
+        ),
+        PortfolioItem(
+            account="DC",
+            code="03311187",
+            isin="JP90C000GKC6",
+            name="S&P500",
+            units=500.0,
+            cost_basis=0,
+        ),
+    ]
+
+    save_portfolio_csv(target_file, items)
+    assert target_file.exists()
+
+    loaded = load_portfolio_csv(target_file)
+    assert len(loaded) == 2
+    assert loaded[0].code == "0331418A"
+    assert loaded[0].isin == "JP90C000H1T1"
+    assert loaded[0].units == 1000.5
+    assert loaded[0].cost_basis == 20000
+    assert loaded[1].cost_basis == 0
+
+
+def test_parse_portfolio_csv_japanese_aliases() -> None:
+    """日本語ヘッダ（account, 協会コード, ISINコード, units, cost_basis等）の解析を検証する。"""
+    csv_data = "口座,協会コード,ISINコード,口数,取得簿価\n法人,0331418A,JP90C000H1T1,1234.5,5678\n"
+    items = parse_portfolio_csv_content(csv_data)
+    assert len(items) == 1
+    assert items[0].account == "法人"
+    assert items[0].code == "0331418A"
+    assert items[0].isin == "JP90C000H1T1"
+    assert items[0].units == 1234.5
+    assert items[0].cost_basis == 5678
+
+
+def test_save_portfolio_csv_cleanup_on_error(tmp_path: Path) -> None:
+    """保存処理中に例外が発生した場合に一時ファイルがクリーンアップされることを検証する。"""
+    from unittest.mock import patch
+
+    from src.models import PortfolioItem
+    from src.portfolio_loader import save_portfolio_csv
+
+    target_file = tmp_path / "saved.csv"
+    items = [PortfolioItem(account="NISA", code="0331418A", units=10.0)]
+
+    with (
+        patch("pathlib.Path.replace", side_effect=OSError("Replace error")),
+        pytest.raises(OSError, match="Replace error"),
+    ):
+        save_portfolio_csv(target_file, items)
+
+    # 一時ファイルが残存していないことを検証
+    temp_files = list(tmp_path.glob("portfolio_tmp_*"))
+    assert len(temp_files) == 0
+
+
+def test_parse_portfolio_csv_unknown_columns_and_full_preset() -> None:
+    """未知のカラムが存在する場合やプリセット銘柄に全情報が明示指定されているケース、非プリセット銘柄を検証する。"""
+    csv_data = (
+        "account,code,isin,name,units,cost_basis,unknown_col\n"
+        "特定,03311181,JP90C000H1T1,カスタム名称,500.0,12000,dummy\n"
+        "一般,99999999,JP9999999999,非プリセット銘柄,100.0,10000,dummy\n"
+    )
+    items = parse_portfolio_csv_content(csv_data)
+    assert len(items) == 2
     assert items[0].code == "03311181"
+    assert items[0].isin == "JP90C000H1T1"
+    assert items[0].name == "カスタム名称"
+    assert items[1].code == "99999999"
+    assert items[1].name == "非プリセット銘柄"

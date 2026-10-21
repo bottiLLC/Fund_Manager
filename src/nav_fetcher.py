@@ -1,44 +1,166 @@
-"""投資信託協会の基準価額CSV取得・解析モジュール。"""
+"""投資信託協会の直結エンドポイントを用いた基準価額・銘柄名取得・解析モジュール。"""
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
+import json
 import re
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 import requests
 
-DEFAULT_TOUSHIN_NAV_URL: Final[str] = (
-    "https://toushin-lib.fwg.ne.jp/FdsWeb/view/download/LST0000001.csv"
+from src.portfolio_loader import PRESET_FUNDS
+
+DIRECT_CSV_URL_TEMPLATE: Final[str] = (
+    "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd={isin}&associFundCd={code}"
+)
+DIRECT_DETAIL_URL_TEMPLATE: Final[str] = (
+    "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd={isin}&associFundCd={code}"
 )
 
-FALLBACK_NAV_MAPPING: Final[dict[str, float]] = {
-    "03311181": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー)
-    "0331118A": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー) 協会コード
-    "0331418A": 25842.0,  # eMAXIS Slim 全世界株式(オール・カントリー) 投信コード
-    "03314187": 31250.0,  # eMAXIS Slim 米国株式(S&P500)
-    "03312184": 26900.0,  # eMAXIS Slim 先進国株式インデックス
+# ネットワーク完全不通時用の内蔵基準価額・銘柄名フォールバック
+FALLBACK_FUNDS: Final[dict[str, dict[str, Any]]] = {
+    "03311187": {
+        "isin": "JP90C000GKC6",
+        "name": "eMAXIS Slim 米国株式(S&P500)",
+        "nav": 44943.0,
+    },
+    "0331124A": {
+        "isin": "JP90C000R9Z9",
+        "name": "eMAXIS Slim 先進国株式(含む日本)<オール先進国>",
+        "nav": 14137.0,
+    },
+    "0331A172": {
+        "isin": "JP90C000END3",
+        "name": "eMAXIS Slim 先進国債券インデックス(除く日本)",
+        "nav": 15120.0,
+    },
+    "8931217C": {
+        "isin": "JP90C000FQR3",
+        "name": "SBI･全世界株式インデックス･ファンド（雪だるま）",
+        "nav": 35039.0,
+    },
+    "03319172": {
+        "isin": "JP90C000ENC5",
+        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+        "nav": 45368.0,
+    },
+    "2931113C": {
+        "isin": "JP90C0009VE0",
+        "name": "ニッセイ外国株式インデックスファンド<購入・換金手数料なし>",
+        "nav": 59920.0,
+    },
+    "0331418A": {
+        "isin": "JP90C000H1T1",
+        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+        "nav": 37859.0,
+    },
+    "89311221": {
+        "isin": "JP90C000MWH8",
+        "name": "SBI･V･全世界株式インデックス・ファンド",
+        "nav": 22683.0,
+    },
+    "89311199": {
+        "isin": "JP90C000J569",
+        "name": "SBI･V･S&P500インデックス・ファンド",
+        "nav": 41070.0,
+    },
+    # 旧コードとの互換
+    "03311181": {
+        "isin": "JP90C000H1T1",
+        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+        "nav": 37859.0,
+    },
+    "03314187": {
+        "isin": "JP90C000GKC6",
+        "name": "eMAXIS Slim 米国株式(S&P500)",
+        "nav": 44943.0,
+    },
+    "03312184": {
+        "isin": "JP90C000ENC5",
+        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+        "nav": 45368.0,
+    },
 }
+
+FALLBACK_NAV_MAPPING: Final[dict[str, float]] = {
+    code: float(info["nav"]) for code, info in FALLBACK_FUNDS.items()
+}
+
+
+def parse_single_fund_csv_content(csv_bytes: bytes) -> tuple[str, float]:
+    """直結エンドポイントから取得した単一銘柄CSVバイナリを解析し、最新日と最新基準価額を返す。
+
+    Args:
+        csv_bytes: Shift-JISエンコードされた単一銘柄CSV。
+
+    Returns:
+        最新基準日 (YYYY-MM-DD) と最新基準価額 (float)。
+
+    Raises:
+        ValueError: CSVが空、または行データが存在しない場合。
+    """
+    text = csv_bytes.decode("cp932", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+
+    try:
+        header = next(reader)
+    except StopIteration as e:
+        msg = "CSVデータが空です。"
+        raise ValueError(msg) from e
+
+    nav_col_idx = 1
+    date_col_idx = 0
+
+    for idx, col in enumerate(header):
+        normalized = col.strip()
+        if "基準価額" in normalized:
+            nav_col_idx = idx
+        elif "年月日" in normalized or "基準日" in normalized or "日付" in normalized:
+            date_col_idx = idx
+
+    last_row: list[str] | None = None
+    for row in reader:
+        if row and len(row) > max(date_col_idx, nav_col_idx):
+            val_str = row[nav_col_idx].replace(",", "").strip()
+            if val_str:
+                last_row = row
+
+    if not last_row:
+        msg = "有効な基準価額レコードが存在しません。"
+        raise ValueError(msg)
+
+    raw_date = last_row[date_col_idx].strip()
+    m = re.search(r"(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})", raw_date)
+    as_of_date = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}" if m else raw_date
+
+    try:
+        nav = float(last_row[nav_col_idx].replace(",", "").strip())
+    except ValueError as e:
+        msg = f"基準価額の数値変換に失敗しました: {last_row[nav_col_idx]}"
+        raise ValueError(msg) from e
+
+    return as_of_date, nav
 
 
 def parse_nav_csv_content(
     csv_bytes: bytes,
     target_codes: set[str],
 ) -> tuple[str, dict[str, float]]:
-    """Shift-JISエンコードされた基準価額CSVバイナリを解析し、対象銘柄の基準価額を抽出する。
+    """複数銘柄一括CSVバイナリ（従来形式・キャッシュ用）を解析する。
 
     Args:
         csv_bytes: CSVバイナリデータ。
-        target_codes: 抽出対象の8桁ファンドコード集合。
+        target_codes: 抽出対象のファンドコード集合。
 
     Returns:
         基準日 (YYYY-MM-DD) と、ファンドコード -> 基準価額(10,000口あたり)の辞書。
-
-    Raises:
-        ValueError: CSVが空、またはヘッダ解析に失敗した場合。
     """
     text = csv_bytes.decode("cp932", errors="replace")
     reader = csv.reader(io.StringIO(text))
@@ -61,13 +183,11 @@ def parse_nav_csv_content(
             date_col_idx = idx
 
     if nav_col_idx is None:
-        # ヘッダで「基準価額」が見つからない場合、2列目(インデックス1)をデフォルト基準価額列とみなす
         nav_col_idx = 1 if len(header) > 1 else 0
 
     as_of_date = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
     date_found = False
 
-    # ヘッダ文字列内に日付が含まれる場合の検出 (例: 2025/01/15, 2025-01-15, 20250115)
     for col in header:
         m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", col)
         if m:
@@ -76,7 +196,6 @@ def parse_nav_csv_content(
             break
 
     nav_map: dict[str, float] = {}
-
     for row in reader:
         if not row or len(row) <= max(code_col_idx, nav_col_idx):
             continue
@@ -100,57 +219,175 @@ def parse_nav_csv_content(
     return as_of_date, nav_map
 
 
-def fetch_latest_nav(
-    target_codes: set[str],
-    url: str = DEFAULT_TOUSHIN_NAV_URL,
+def _fetch_single_fund_live(
+    code: str,
+    isin: str,
+    timeout: float = 8.0,
+) -> tuple[str, float, str, bytes]:
+    """単一ファンドのCSVと銘柄詳細HTMLをHTTPで取得する。"""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    csv_url = DIRECT_CSV_URL_TEMPLATE.format(isin=isin, code=code)
+    r_csv = requests.get(csv_url, headers=headers, timeout=timeout)
+    r_csv.raise_for_status()
+
+    as_of_date, nav = parse_single_fund_csv_content(r_csv.content)
+
+    # 銘柄名のHTML取得
+    name = ""
+    try:
+        detail_url = DIRECT_DETAIL_URL_TEMPLATE.format(isin=isin, code=code)
+        r_html = requests.get(detail_url, headers=headers, timeout=timeout)
+        if r_html.status_code == 200:
+            titles = re.findall(r"<title>(.*?)</title>", r_html.content.decode("utf-8", "replace"))
+            if titles:
+                name = unicodedata.normalize("NFKC", titles[0]).strip()
+    except Exception:
+        pass
+
+    if not name:
+        preset = PRESET_FUNDS.get(code)
+        name = preset["name"] if preset else f"ファンド {code}"
+
+    return as_of_date, nav, name, r_csv.content
+
+
+def fetch_latest_nav_and_names(
+    targets: dict[str, str],
     cache_dir: Path | None = None,
     timeout: float = 8.0,
-) -> tuple[str, dict[str, float]]:
-    """投信協会から最新基準価額CSVを取得する。失敗時はキャッシュまたはフォールバックを使用。
+) -> tuple[str, dict[str, float], dict[str, str]]:
+    """直結APIおよびキャッシュを用いて、最新基準日、基準価額マップ、銘柄名マップを取得する。
 
     Args:
-        target_codes: 抽出対象の8桁ファンドコード集合。
-        url: 投信協会のCSVダウンロードURL。
-        cache_dir: キャッシュ保存・参照ディレクトリ（None時は./data/cache）。
-        timeout: HTTPタイムアウト秒数。
+        targets: 協会コード -> ISINコードの辞書。
+        cache_dir: キャッシュ保存・参照先ディレクトリ。
+        timeout: 各銘柄のHTTPリクエストタイムアウト秒数。
 
     Returns:
-        基準日 (YYYY-MM-DD) と、ファンドコード -> 基準価額の辞書。
+        (最新基準日, code -> nav マップ, code -> name マップ) の3つ組。
     """
     effective_cache_dir = cache_dir or Path("./data/cache")
     effective_cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = effective_cache_dir / "latest_nav.csv"
+    meta_cache_file = effective_cache_dir / "fund_meta.json"
 
-    # 1. ネットワークからの取得試行
-    try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        }
-        resp = requests.get(url, headers=headers, timeout=timeout)
-        if resp.status_code == 200 and resp.content:
-            as_of_date, nav_map = parse_nav_csv_content(resp.content, target_codes)
-            if nav_map:
-                # 正常取得時はローカルキャッシュに保存
-                cache_file.write_bytes(resp.content)
-                return as_of_date, nav_map
-    except (requests.RequestException, OSError):
-        pass
-
-    # 2. ローカルキャッシュからの復元試行
-    if cache_file.exists():
+    cached_meta: dict[str, dict[str, Any]] = {}
+    if meta_cache_file.exists():
         try:
-            cached_bytes = cache_file.read_bytes()
-            as_of_date, cached_map = parse_nav_csv_content(cached_bytes, target_codes)
-            if cached_map:
-                return f"{as_of_date} (Cached)", cached_map
-        except (OSError, ValueError):
-            pass
+            cached_meta = json.loads(meta_cache_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cached_meta = {}
 
-    # 3. 内蔵フォールバックマップの適用
-    today_str = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
-    fallback_result = {code: FALLBACK_NAV_MAPPING.get(code, 10000.0) for code in target_codes}
-    return f"{today_str} (Fallback)", fallback_result
+    nav_map: dict[str, float] = {}
+    name_map: dict[str, str] = {}
+    dates: list[str] = []
+    is_fallback = False
+    is_cached = False
+
+    def fetch_worker(code: str, isin: str) -> tuple[str, str, float, str, bytes | None]:
+        if not isin:
+            preset = PRESET_FUNDS.get(code)
+            if preset:
+                isin = preset["isin"]
+
+        if isin:
+            try:
+                as_of, nav, name, content = _fetch_single_fund_live(code, isin, timeout=timeout)
+                return code, as_of, nav, name, content
+            except Exception:
+                pass
+
+        # ローカルCSVキャッシュからの復元試行
+        single_cache = effective_cache_dir / f"{code}_{isin}.csv"
+        if single_cache.exists():
+            try:
+                b = single_cache.read_bytes()
+                as_of, nav = parse_single_fund_csv_content(b)
+                cached_name = cached_meta.get(code, {}).get("name") or PRESET_FUNDS.get(
+                    code, {}
+                ).get("name", f"ファンド {code}")
+                return code, f"{as_of} (Cached)", nav, cached_name, None
+            except Exception:
+                pass
+
+        # フォールバック辞書の適用
+        today_str = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+        fallback_item = FALLBACK_FUNDS.get(code)
+        if fallback_item:
+            return (
+                code,
+                f"{today_str} (Fallback)",
+                float(fallback_item["nav"]),
+                str(fallback_item["name"]),
+                None,
+            )
+
+        return code, f"{today_str} (Fallback)", 10000.0, f"ファンド {code}", None
+
+    with ThreadPoolExecutor(max_workers=min(len(targets) or 1, 8)) as executor:
+        futures = [executor.submit(fetch_worker, code, isin) for code, isin in targets.items()]
+        for f in as_completed(futures):
+            code, as_of, nav, name, content = f.result()
+            nav_map[code] = nav
+            name_map[code] = name
+            clean_date = as_of.replace(" (Cached)", "").replace(" (Fallback)", "")
+            dates.append(clean_date)
+            if "(Fallback)" in as_of:
+                is_fallback = True
+            elif "(Cached)" in as_of:
+                is_cached = True
+
+            if content:
+                # 個別CSVキャッシュの保存
+                isin_val = targets.get(code, "")
+                csv_path = effective_cache_dir / f"{code}_{isin_val}.csv"
+                with contextlib.suppress(OSError):
+                    csv_path.write_bytes(content)
+
+                cached_meta[code] = {
+                    "isin": isin_val,
+                    "name": name,
+                    "nav": nav,
+                    "as_of_date": as_of,
+                }
+
+    # メタ情報キャッシュの保存
+    if cached_meta:
+        with contextlib.suppress(OSError):
+            meta_cache_file.write_text(
+                json.dumps(cached_meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+    overall_date = max(dates) if dates else datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
+    if is_fallback:
+        overall_date = f"{overall_date} (Fallback)"
+    elif is_cached:
+        overall_date = f"{overall_date} (Cached)"
+
+    return overall_date, nav_map, name_map
+
+
+def fetch_latest_nav(
+    target_codes: set[str] | dict[str, str],
+    url: str | None = None,
+    cache_dir: Path | None = None,
+    timeout: float = 8.0,
+) -> tuple[str, dict[str, float]]:
+    """後方互換用エントリーポイント。基準日と基準価額マップを返却する。"""
+    _ = url
+    if isinstance(target_codes, dict):
+        targets = target_codes
+    else:
+        targets = {code: PRESET_FUNDS.get(code, {}).get("isin", "") for code in target_codes}
+
+    as_of_date, nav_map, _ = fetch_latest_nav_and_names(
+        targets=targets,
+        cache_dir=cache_dir,
+        timeout=timeout,
+    )
+    return as_of_date, nav_map
