@@ -3,6 +3,7 @@ name = "fund-manager"
 version = "0.1.0"
 description = "Investment Trust Portfolio Evaluation & Asset Allocation Visualizer"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.10.0",

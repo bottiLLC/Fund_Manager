@@ -1,7 +1,7 @@
 ![CI](https://img.shields.io/badge/CI-passed-green)
 ![Python](https://img.shields.io/badge/Python-3.13-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.42.0-FF4B4B.svg)
-![License](https://img.shields.io/badge/License-Private-red.svg)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
 # 投資信託 ポートフォリオ評価システム (Fund Manager)
 
@@ -33,4 +33,5 @@ uv run streamlit run app.py
 
 ---
 
-Copyright (c) LLC Bocchi. All rights reserved.
+Licensed under the [MIT License](LICENSE).  
+Copyright (c) 2026 LLC Bocchi. All rights reserved.
