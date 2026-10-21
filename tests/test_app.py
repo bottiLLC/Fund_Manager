@@ -99,14 +99,19 @@ def test_app_sbi_file_uploader_rendered() -> None:
 
 
 def test_app_master_tab_controls() -> None:
-    """マスター管理タブ内の選択削除UIおよび標準CSVアップローダーの存在を検証する。"""
+    """マスター管理タブ内のデータエディタ削除コントロールおよび標準CSVアップローダーの存在を検証する。"""
     at = AppTest.from_file(_APP_PATH, default_timeout=30)
     at.run()
     assert not at.exception
 
-    # 選択削除用 multiselect の存在確認
+    # 旧マルチセレクト選択削除UIが撤去されていることの確認
     multiselects = at.multiselect
-    assert any("削除対象の銘柄を選択" in m.label for m in multiselects)
+    assert not any("削除対象の銘柄を選択" in m.label for m in multiselects)
+
+    # データエディタの保存ボタンおよび削除ボタンの存在確認
+    buttons = at.button
+    assert any("保存して再計算" in b.label for b in buttons)
+    assert any("チェックした銘柄" in b.label for b in buttons)
 
     # 標準 portfolio.csv アップローダーの存在確認
     uploaders = at.file_uploader

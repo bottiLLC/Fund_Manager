@@ -21,7 +21,6 @@ from src.models import PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
 from src.portfolio_loader import (
     PRESET_FUNDS,
-    delete_portfolio_items_by_indices,
     load_portfolio_csv,
     parse_portfolio_csv_content,
     save_portfolio_csv,
@@ -380,6 +379,7 @@ with tab_master:
     st.markdown("##### 📋 登録済みポートフォリオの直接編集・削除")
     edit_data = [
         {
+            "delete": False,
             "account": it.account,
             "code": it.code,
             "isin": it.isin,
@@ -395,7 +395,22 @@ with tab_master:
         edit_df,
         num_rows="dynamic",
         use_container_width=True,
+        hide_index=True,
+        column_order=[
+            "delete",
+            "account",
+            "code",
+            "isin",
+            "units",
+            "cost_basis",
+            "name",
+        ],
         column_config={
+            "delete": st.column_config.CheckboxColumn(
+                "削除",
+                help="削除する場合はチェックを入れてください",
+                default=False,
+            ),
             "account": st.column_config.SelectboxColumn(
                 "口座種別",
                 options=["法人", "NISA", "特定", "iDeCo", "DC", "一般"],
@@ -407,14 +422,71 @@ with tab_master:
             "cost_basis": st.column_config.NumberColumn("取得簿価(円)", min_value=0, required=True),
             "name": st.column_config.TextColumn("銘柄名(Web自動取得)", disabled=True),
         },
+        key="portfolio_data_editor",
     )
 
-    if st.button(
-        "💾 変更を portfolio.csv に保存して再計算", type="primary", use_container_width=True
-    ):
+    is_delete_series = edited_df["delete"].fillna(False).astype(bool)
+    delete_count = int(is_delete_series.sum())
+
+    if delete_count > 0:
+        st.warning(f"⚠️ 削除対象として **{delete_count} 件** の銘柄にチェックが入っています（ON）。")
+    else:
+        st.caption(
+            "※ 銘柄を削除する場合は、表の一番左端「削除」列のチェックボックスをONにしてください。"
+        )
+
+    col_save, col_delete = st.columns([1, 1])
+    with col_save:
+        save_btn = st.button(
+            "💾 変更を portfolio.csv に保存して再計算",
+            type="primary" if delete_count == 0 else "secondary",
+            use_container_width=True,
+            key="save_portfolio_changes_btn",
+        )
+    with col_delete:
+        delete_btn = st.button(
+            f"🗑️ チェックした銘柄 ({delete_count}件) を削除",
+            type="primary" if delete_count > 0 else "secondary",
+            disabled=(delete_count == 0),
+            use_container_width=True,
+            key="delete_portfolio_checked_btn",
+        )
+
+    if delete_btn and delete_count > 0:
+        try:
+            run_backup(app_name="pre_delete")
+            remaining_items: list[PortfolioItem] = []
+            for _, r in edited_df.iterrows():
+                if not bool(r.get("delete", False)):
+                    account_val = str(r["account"]).strip()
+                    code_val = str(r["code"]).strip()
+                    isin_val = str(r["isin"]).strip()
+                    units_val = float(r["units"])
+                    cost_val = int(r["cost_basis"])
+                    if account_val and code_val:
+                        remaining_items.append(
+                            PortfolioItem(
+                                account=account_val,
+                                code=code_val,
+                                isin=isin_val,
+                                name=str(r.get("name") or ""),
+                                units=units_val,
+                                cost_basis=cost_val,
+                            )
+                        )
+            save_portfolio_csv(portfolio_csv_path, remaining_items)
+            st.cache_data.clear()
+            st.success(f"{delete_count} 件の銘柄を削除し、portfolio.csv を正常に更新しました。")
+            st.rerun()
+        except Exception as del_err:
+            st.error(f"削除エラー: {del_err}")
+
+    if save_btn:
         try:
             validated_save_items: list[PortfolioItem] = []
             for _, r in edited_df.iterrows():
+                if bool(r.get("delete", False)):
+                    continue
                 account_val = str(r["account"]).strip()
                 code_val = str(r["code"]).strip()
                 isin_val = str(r["isin"]).strip()
@@ -435,46 +507,14 @@ with tab_master:
             if not validated_save_items:
                 st.error("保存対象の有効な銘柄データがありません。")
             else:
+                if delete_count > 0:
+                    run_backup(app_name="pre_delete")
                 save_portfolio_csv(portfolio_csv_path, validated_save_items)
                 st.cache_data.clear()
                 st.success("portfolio.csv を正常に更新しました。最新の集計を実行します。")
                 st.rerun()
         except Exception as save_err:
             st.error(f"保存エラー: {save_err}")
-
-    # ---------------------------------------------------------
-    # Zone 2-B: 選択削除機能
-    # ---------------------------------------------------------
-    st.divider()
-    st.markdown("##### 🗑️ 登録銘柄の選択削除")
-    st.caption(
-        "不要になった銘柄を選択して一括削除できます（削除前に事前バックアップが自動作成されます）。"
-    )
-
-    if portfolio_items:
-        delete_options = list(range(len(portfolio_items)))
-        selected_delete_indices = st.multiselect(
-            "削除対象の銘柄を選択",
-            options=delete_options,
-            format_func=lambda i: (
-                f"[{portfolio_items[i].account}] {portfolio_items[i].name or portfolio_items[i].code} "
-                f"(コード: {portfolio_items[i].code}, 口数: {portfolio_items[i].units:,.0f})"
-            ),
-            key="portfolio_items_to_delete",
-        )
-        if selected_delete_indices and st.button(
-            f"🗑️ 選択した {len(selected_delete_indices)} 件の銘柄を削除",
-            type="secondary",
-            use_container_width=True,
-        ):
-            run_backup(app_name="pre_delete")
-            remaining_items = delete_portfolio_items_by_indices(
-                portfolio_items, selected_delete_indices
-            )
-            save_portfolio_csv(portfolio_csv_path, remaining_items)
-            st.cache_data.clear()
-            st.success(f"{len(selected_delete_indices)} 件の銘柄を削除しました。")
-            st.rerun()
 
     # ---------------------------------------------------------
     # Zone 2-C: 標準ポートフォリオCSV直接アップロード
