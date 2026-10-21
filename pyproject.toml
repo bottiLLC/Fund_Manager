@@ -1,0 +1,53 @@
+[project]
+name = "fund-manager"
+version = "0.1.0"
+description = "Investment Trust Portfolio Evaluation & Asset Allocation Visualizer"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.10.0",
+    "streamlit>=1.42.0",
+    "pandas>=2.2.0",
+    "requests>=2.32.0",
+    "altair>=5.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "mypy>=1.15.0",
+    "ruff>=0.9.0",
+    "types-requests>=2.32.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ARG"]
+ignore = ["EXE002", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"cli.py" = ["E402"]
+"app.py" = ["E402"]
+
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-v --cov=src --cov-branch --cov-report=term-missing"
