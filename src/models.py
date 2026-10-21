@@ -7,7 +7,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-FUND_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^\d{8}$")
+FUND_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^[0-9A-Z]{8}$")
 
 
 class PortfolioItem(BaseModel):
@@ -18,7 +18,7 @@ class PortfolioItem(BaseModel):
     account: str = Field(
         ..., min_length=1, description="口座種別（法人, NISA, 特定, iDeCo, DCなど）"
     )
-    code: str = Field(..., description="投信協会の8桁ファンドコード")
+    code: str = Field(..., description="投信協会の8桁ファンドコード（半角英大文字・数字）")
     name: str = Field(..., min_length=1, description="銘柄略称")
     units: float = Field(..., gt=0.0, description="保有口数")
     cost_basis: int = Field(
@@ -30,7 +30,7 @@ class PortfolioItem(BaseModel):
     def validate_fund_code(cls, v: str) -> str:
         cleaned = v.strip()
         if not FUND_CODE_REGEX.match(cleaned):
-            msg = f"ファンドコードは8桁の半角数字である必要があります: {v}"
+            msg = f"ファンドコードは8桁の半角英数字（大文字）である必要があります: {v}"
             raise ValueError(msg)
         return cleaned
 

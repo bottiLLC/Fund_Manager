@@ -13,12 +13,16 @@ from src.models import (
 )
 
 
-def test_portfolio_item_valid() -> None:
-    """正常なPortfolioItemの生成を検証する。"""
+@pytest.mark.parametrize(
+    "valid_code",
+    ["03311181", "0331118A", "9C311181", "ABCDEFGH"],
+)
+def test_portfolio_item_valid(valid_code: str) -> None:
+    """正常なPortfolioItem（半角数字および半角英大文字コード）の生成を検証する。"""
     # Arrange & Act
     item = PortfolioItem(
         account="NISA",
-        code="03311181",
+        code=valid_code,
         name="eMAXIS Slim 全世界株式",
         units=10000.5,
         cost_basis=20000,
@@ -26,7 +30,7 @@ def test_portfolio_item_valid() -> None:
 
     # Assert
     assert item.account == "NISA"
-    assert item.code == "03311181"
+    assert item.code == valid_code
     assert item.name == "eMAXIS Slim 全世界株式"
     assert item.units == 10000.5
     assert item.cost_basis == 20000
@@ -34,12 +38,14 @@ def test_portfolio_item_valid() -> None:
 
 @pytest.mark.parametrize(
     "invalid_code",
-    ["1234567", "123456789", "abcdefgh", "0331118A", ""],
+    ["1234567", "123456789", "abcdefgh", "0331118a", "0331-181", ""],
 )
 def test_portfolio_item_invalid_code(invalid_code: str) -> None:
     """不正なファンドコードでValidationErrorが発生することを検証する。"""
     # Arrange, Act & Assert
-    with pytest.raises(ValidationError, match="ファンドコードは8桁の半角数字である必要があります"):
+    with pytest.raises(
+        ValidationError, match="ファンドコードは8桁の半角英数字（大文字）である必要があります"
+    ):
         PortfolioItem(
             account="特定",
             code=invalid_code,
