@@ -33,6 +33,30 @@ def test_parse_portfolio_csv_content_success() -> None:
     assert items[2].cost_basis == 0
 
 
+def test_parse_portfolio_csv_content_empty_row_dict() -> None:
+    """CSV読み込み中に空の辞書行がスキップされることを検証する。"""
+    from unittest.mock import MagicMock, patch
+
+    with patch("csv.DictReader") as mock_reader_cls:
+        mock_inst = MagicMock()
+        mock_inst.fieldnames = ["account", "code", "name", "units", "cost_basis"]
+        mock_inst.__iter__.return_value = [
+            {},
+            {
+                "account": "法人",
+                "code": "03311181",
+                "name": "全世界",
+                "units": "1000",
+                "cost_basis": "1000",
+            },
+        ]
+        mock_reader_cls.return_value = mock_inst
+        items = parse_portfolio_csv_content("dummy_content")
+
+        assert len(items) == 1
+        assert items[0].account == "法人"
+
+
 def test_parse_portfolio_csv_content_empty_error() -> None:
     """空のCSVでValueErrorが発生することを検証する。"""
     with pytest.raises(ValueError, match="CSVファイルが空か"):

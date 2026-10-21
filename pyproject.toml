@@ -50,6 +50,13 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 check_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = [
+    "altair.*",
+    "pandas.*",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]

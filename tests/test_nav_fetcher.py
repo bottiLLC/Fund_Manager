@@ -134,3 +134,47 @@ def test_fetch_latest_nav_corrupted_cache(tmp_path: Path) -> None:
 
     assert "(Fallback)" in as_of_date
     assert nav_map["03311181"] == FALLBACK_NAV_MAPPING["03311181"]
+
+
+def test_parse_nav_csv_content_unmatched_date_format() -> None:
+    """日付列が存在するが正規表現にマッチしない場合のブランチを検証する。"""
+    csv_text = "ファンドコード,ファンド名,基準価額,年月日\n03311181,全世界株,25000,日付不明\n"
+    as_of_date, nav_map = parse_nav_csv_content(csv_text.encode("cp932"), {"03311181"})
+    assert nav_map["03311181"] == 25000.0
+
+
+def test_fetch_latest_nav_network_no_target_codes_falls_back(tmp_path: Path) -> None:
+    """ネットワーク取得成功でも対象コードが0件の場合にキャッシュまたはフォールバックへ移行することを検証する。"""
+    csv_text = "コード,基準価額\n99999999,25000\n"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = csv_text.encode("cp932")
+
+    cache_dir = tmp_path / "cache"
+
+    with patch("requests.get", return_value=mock_resp):
+        as_of_date, nav_map = fetch_latest_nav(
+            target_codes={"03311181"},
+            cache_dir=cache_dir,
+        )
+
+    assert "(Fallback)" in as_of_date
+    assert nav_map["03311181"] == FALLBACK_NAV_MAPPING["03311181"]
+
+
+def test_fetch_latest_nav_cache_no_target_codes_falls_back(tmp_path: Path) -> None:
+    """キャッシュが存在しても対象コードが0件の場合に内蔵フォールバックへ移行することを検証する。"""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "latest_nav.csv"
+    cached_content = "コード,基準価額,日付\n99999999,24500,2026-10-15\n".encode("cp932")
+    cache_file.write_bytes(cached_content)
+
+    with patch("requests.get", side_effect=requests.RequestException("Network down")):
+        as_of_date, nav_map = fetch_latest_nav(
+            target_codes={"03311181"},
+            cache_dir=cache_dir,
+        )
+
+    assert "(Fallback)" in as_of_date
+    assert nav_map["03311181"] == FALLBACK_NAV_MAPPING["03311181"]

@@ -52,3 +52,13 @@ def test_cli_main_csv_load_error(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert ret == 1
     captured = capsys.readouterr()
     assert "エラー: 保有資産CSVの読み込みに失敗しました" in captured.err
+
+
+def test_cli_name_main_execution() -> None:
+    """__main__ 経由での実行を検証する。"""
+    import runpy
+
+    with patch("sys.argv", ["cli.py", "--help"]):
+        with pytest.raises(SystemExit) as exc_info:
+            runpy.run_path("cli.py", run_name="__main__")
+        assert exc_info.value.code == 0

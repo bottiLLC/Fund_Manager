@@ -1,0 +1,55 @@
+"""app.py Streamlit GUI のテストモジュール。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+from streamlit.testing.v1 import AppTest
+
+_APP_PATH = str(Path(__file__).resolve().parent.parent / "app.py")
+
+
+def test_app_initial_render() -> None:
+    """Streamlit アプリケーションがエラーなく初期描画されることを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+
+    assert not at.exception
+    assert len(at.title) >= 1
+    assert "投資信託 ポートフォリオ評価ダッシュボード" in at.title[0].value
+    assert len(at.metric) >= 3
+
+
+def test_app_force_refresh_button() -> None:
+    """キャッシュクリアボタンのクリック動作を検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    refresh_buttons = [b for b in at.sidebar.button if "再取得" in b.label]
+    assert len(refresh_buttons) == 1
+    refresh_buttons[0].click().run()
+    assert not at.exception
+
+
+def test_app_backup_button() -> None:
+    """サイドバーのバックアップ実行ボタンのクリック動作を検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    backup_buttons = [b for b in at.sidebar.button if "今すぐバックアップ" in b.label]
+    assert len(backup_buttons) == 1
+    backup_buttons[0].click().run()
+    assert not at.exception
+
+
+def test_app_csv_load_error() -> None:
+    """portfolio.csv 読み込み失敗時にエラー表示と st.stop が行われることを検証する。"""
+    with patch("src.portfolio_loader.load_portfolio_csv", side_effect=ValueError("テストエラー")):
+        at = AppTest.from_file(_APP_PATH, default_timeout=30)
+        at.run()
+        assert not at.exception
+        assert len(at.error) >= 1
+        assert "保有資産CSVの読み込みエラー: テストエラー" in at.error[0].value

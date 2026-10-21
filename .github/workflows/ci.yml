@@ -37,7 +37,7 @@ jobs:
 
       - name: Type check with Mypy
         run: |
-          uv run mypy src tests
+          uv run mypy .
 
       - name: Run Pytest with C1 Branch Coverage
         run: |
