@@ -17,10 +17,20 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+from backup_manager import run_backup
 from src.calculator import evaluate_portfolio
 from src.formatter import format_cli_report
+from src.models import PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
-from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv
+from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv, save_portfolio_csv
+from src.sbi_importer import (
+    MergeMode,
+    decode_csv_bytes,
+    load_custom_aliases,
+    merge_candidates_into_portfolio,
+    parse_sbi_portfolio_csv,
+    resolve_candidates,
+)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -34,6 +44,12 @@ def parse_arguments() -> argparse.Namespace:
         default=_PROJECT_ROOT / "data" / "portfolio.csv",
         help="保有資産CSVファイルへのパス (デフォルト: ./data/portfolio.csv)",
     )
+    parser.add_argument(
+        "--import-sbi",
+        type=Path,
+        default=None,
+        help="SBI証券ポートフォリオCSVを取り込んで portfolio.csv を更新する",
+    )
     return parser.parse_args()
 
 
@@ -41,11 +57,55 @@ def main() -> int:
     """メイン実行処理。"""
     args = parse_arguments()
 
-    try:
-        portfolio_items = load_portfolio_csv(args.csv)
-    except Exception as e:
-        sys.stderr.write(f"エラー: 保有資産CSVの読み込みに失敗しました: {e}\n")
-        return 1
+    portfolio_items: list[PortfolioItem] = []
+    if args.csv.exists() or args.import_sbi is None:
+        try:
+            portfolio_items = load_portfolio_csv(args.csv)
+        except Exception as e:
+            if args.import_sbi is None:
+                sys.stderr.write(f"エラー: 保有資産CSVの読み込みに失敗しました: {e}\n")
+                return 1
+
+    if args.import_sbi is not None:
+        try:
+            sbi_path = Path(args.import_sbi).resolve()
+            if not sbi_path.exists():
+                sys.stderr.write(f"エラー: 指定されたSBI CSVファイルが存在しません: {sbi_path}\n")
+                return 1
+
+            raw_text = decode_csv_bytes(sbi_path.read_bytes())
+            records = parse_sbi_portfolio_csv(raw_text)
+            if not records:
+                sys.stderr.write("エラー: 有効な投資信託明細が検出されませんでした。\n")
+                return 1
+
+            alias_file = _PROJECT_ROOT / "data" / "custom_fund_aliases.json"
+            custom_aliases = load_custom_aliases(alias_file)
+            candidates = resolve_candidates(
+                records=records,
+                existing_items=portfolio_items,
+                custom_aliases=custom_aliases,
+            )
+
+            unresolved = [c for c in candidates if not c.is_resolved]
+            if unresolved:
+                sys.stderr.write(
+                    f"エラー: {len(unresolved)} 件の銘柄コードが未解決です (例: {unresolved[0].source_record.fund_name})\n"
+                )
+                return 1
+
+            run_backup(app_name="pre_sbi_import")
+            updated = merge_candidates_into_portfolio(
+                existing_items=portfolio_items,
+                resolved_candidates=candidates,
+                merge_mode=MergeMode.UPSERT,
+            )
+            save_portfolio_csv(args.csv, updated)
+            portfolio_items = updated
+            print(f"SBI証券CSVを正常にインポートしました: {len(updated)} 件")
+        except Exception as ex:
+            sys.stderr.write(f"エラー: SBI CSVインポートに失敗しました: {ex}\n")
+            return 1
 
     targets = {item.code: item.isin for item in portfolio_items}
     cache_dir = _PROJECT_ROOT / "data" / "cache"

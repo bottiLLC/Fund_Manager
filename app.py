@@ -20,6 +20,17 @@ from src.formatter import format_rate, format_yen
 from src.models import PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv, save_portfolio_csv
+from src.sbi_importer import (
+    ImportCandidate,
+    MergeMode,
+    decode_csv_bytes,
+    load_custom_aliases,
+    merge_candidates_into_portfolio,
+    normalize_string_key,
+    parse_sbi_portfolio_csv,
+    resolve_candidates,
+    save_custom_aliases,
+)
 
 st.set_page_config(
     page_title="Fund Manager - 投資信託資産管理",
@@ -424,3 +435,209 @@ with tab_master:
                 st.rerun()
         except Exception as save_err:
             st.error(f"保存エラー: {save_err}")
+
+    st.divider()
+
+    # ---------------------------------------------------------
+    # Zone 2-C: SBI証券CSVインポート
+    # ---------------------------------------------------------
+    st.subheader("📥 SBI証券CSVポートフォリオインポート")
+    st.caption(
+        "SBI証券のポートフォリオ管理画面からエクスポートしたCSVファイルを取り込み、"
+        "銘柄名からの投信協会コード自動逆引き、事前バックアップ、および柔軟なマージ保存を実行します。"
+    )
+
+    sbi_file = st.file_uploader(
+        "SBI証券のポートフォリオCSVを選択",
+        type=["csv"],
+        key="sbi_csv_uploader",
+        help="SBI証券でダウンロードしたShift-JIS/CP932/UTF-8のCSVに対応しています。",
+    )
+
+    if sbi_file is not None:
+        try:
+            raw_csv_text = decode_csv_bytes(sbi_file.getvalue())
+            sbi_records = parse_sbi_portfolio_csv(raw_csv_text)
+
+            if not sbi_records:
+                st.warning("アップロードされたCSVから有効な投資信託明細が検出されませんでした。")
+            else:
+                alias_store_path = _PROJECT_ROOT / "data" / "custom_fund_aliases.json"
+                custom_aliases = load_custom_aliases(alias_store_path)
+
+                # 検出されたセクション口座名の一覧
+                detected_sections = sorted({r.raw_account_section for r in sbi_records})
+                existing_accounts = sorted({it.account for it in portfolio_items})
+                if not existing_accounts:
+                    existing_accounts = ["法人", "NISA", "特定", "iDeCo", "DC", "一般"]
+
+                st.markdown("##### 1. 口座（タンク）名マッピング設定")
+                st.caption(
+                    "SBI証券上の口座区分を、本アプリで管理する口座名（タンク）へ対応付けます。"
+                )
+
+                account_map: dict[str, str] = {}
+                map_cols = st.columns(min(len(detected_sections), 3))
+                for idx, section in enumerate(detected_sections):
+                    col = map_cols[idx % len(map_cols)]
+                    with col:
+                        # デフォルト推論
+                        from src.sbi_importer import extract_account_name
+
+                        default_target = extract_account_name(section)
+                        # 既存アカウントと近似するものがあれば選択肢の初期値にする
+                        matched_initial = (
+                            default_target
+                            if default_target in existing_accounts
+                            else existing_accounts[0]
+                        )
+                        options_list = sorted({*existing_accounts, default_target})
+                        selected_acc = st.selectbox(
+                            f"『{section}』の格納先",
+                            options=options_list,
+                            index=options_list.index(
+                                default_target
+                                if default_target in existing_accounts
+                                else matched_initial
+                            ),
+                            key=f"acc_map_{idx}",
+                        )
+                        account_map[default_target] = selected_acc
+
+                # 名寄せ解決
+                candidates = resolve_candidates(
+                    records=sbi_records,
+                    existing_items=portfolio_items,
+                    custom_aliases=custom_aliases,
+                    account_override_map=account_map,
+                )
+
+                st.markdown("##### 2. インポート候補プレビュー & コード検証")
+                unresolved_count = sum(1 for c in candidates if not c.is_resolved)
+
+                if unresolved_count > 0:
+                    st.warning(
+                        f"⚠️ {unresolved_count} 件の銘柄で投信協会コード（8桁）の自動特定が未完了です。"
+                        "下記の入力欄に8桁コードを入力すると自動学習され、次回以降も自動照合されます。"
+                    )
+
+                # 手動コード補完UI
+                resolved_candidates: list[ImportCandidate] = []
+                new_learned_aliases: dict[str, tuple[str, str]] = {}
+
+                for c_idx, c in enumerate(candidates):
+                    if not c.is_resolved:
+                        with st.expander(f"未特定銘柄: {c.source_record.fund_name}", expanded=True):
+                            input_col1, input_col2 = st.columns(2)
+                            with input_col1:
+                                manual_code = (
+                                    st.text_input(
+                                        "投信協会コード (8桁)",
+                                        max_chars=8,
+                                        key=f"manual_code_{c_idx}",
+                                        help="例: 0331418A",
+                                    )
+                                    .strip()
+                                    .upper()
+                                )
+                            with input_col2:
+                                manual_isin = (
+                                    st.text_input(
+                                        "ISINコード (12桁, 任意)",
+                                        max_chars=12,
+                                        key=f"manual_isin_{c_idx}",
+                                        help="例: JP90C000H1T1",
+                                    )
+                                    .strip()
+                                    .upper()
+                                )
+
+                            if len(manual_code) == 8:
+                                norm_k = normalize_string_key(c.source_record.fund_name)
+                                new_learned_aliases[norm_k] = (manual_code, manual_isin)
+                                resolved_candidates.append(
+                                    ImportCandidate(
+                                        source_record=c.source_record,
+                                        target_account=c.target_account,
+                                        resolved_code=manual_code,
+                                        resolved_isin=manual_isin,
+                                        is_resolved=True,
+                                    )
+                                )
+                            else:
+                                resolved_candidates.append(c)
+                    else:
+                        resolved_candidates.append(c)
+
+                # 候補プレビューテーブル表示
+                preview_rows = [
+                    {
+                        "ステータス": "✅ 照合完了" if rc.is_resolved else "❌ 未解決",
+                        "格納口座": rc.target_account,
+                        "ファンド名": rc.source_record.fund_name,
+                        "協会コード": rc.resolved_code or "---",
+                        "ISIN": rc.resolved_isin or "---",
+                        "保有口数": rc.source_record.quantity,
+                        "取得単価": rc.source_record.acquisition_price,
+                        "算出簿価(円)": format_yen(rc.source_record.calculated_cost_basis),
+                        "評価額(円)": format_yen(int(round(rc.source_record.valuation))),
+                    }
+                    for rc in resolved_candidates
+                ]
+                st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
+
+                st.markdown("##### 3. 統合ポリシーの選択 & インポート確定")
+                merge_mode_selected = st.radio(
+                    "マージ戦略",
+                    options=[
+                        MergeMode.UPSERT,
+                        MergeMode.ADD_ONLY,
+                        MergeMode.REPLACE_ALL,
+                    ],
+                    format_func=lambda m: {
+                        MergeMode.UPSERT: "【UPSERT（推奨）】一致する (口座, コード) は最新データで上書きし、新規銘柄は追加",
+                        MergeMode.ADD_ONLY: "【新規のみ追加】既存に存在しない銘柄のみを追加し、既存の口数・簿価は維持",
+                        MergeMode.REPLACE_ALL: "【全件洗い替え】既存の portfolio.csv を全破棄し、インポートデータで完全置換",
+                    }[m],
+                )
+
+                all_ready = all(rc.is_resolved for rc in resolved_candidates)
+
+                if st.button(
+                    "🚀 SBI証券ポートフォリオを取り込んで保存",
+                    type="primary",
+                    disabled=not all_ready,
+                    use_container_width=True,
+                ):
+                    with st.spinner("事前セーフティバックアップおよびデータ統合を実行中..."):
+                        # 1. 事前バックアップの強制実行
+                        backup_res = run_backup(app_name="pre_sbi_import")
+                        if not backup_res.get("success"):
+                            st.error(
+                                f"事前バックアップに失敗したため処理を中断しました: {backup_res.get('message')}"
+                            )
+                            st.stop()
+
+                        # 2. 新規学習エイリアスの永続保存
+                        if new_learned_aliases:
+                            merged_aliases = {**custom_aliases, **new_learned_aliases}
+                            save_custom_aliases(alias_store_path, merged_aliases)
+
+                        # 3. マージ処理
+                        merged_portfolio = merge_candidates_into_portfolio(
+                            existing_items=portfolio_items,
+                            resolved_candidates=resolved_candidates,
+                            merge_mode=merge_mode_selected,
+                        )
+
+                        # 4. 原子的保存
+                        save_portfolio_csv(portfolio_csv_path, merged_portfolio)
+                        st.cache_data.clear()
+
+                    st.success(
+                        f"🎉 インポートが完了しました（全 {len(merged_portfolio)} 件）。事前バックアップ作成済み: {backup_res.get('filename')}"
+                    )
+                    st.rerun()
+
+        except Exception as import_err:
+            st.error(f"CSVインポート処理中にエラーが発生しました: {import_err}")

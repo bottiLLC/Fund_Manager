@@ -85,3 +85,14 @@ def test_app_tabs_rendered() -> None:
     at.run()
     assert not at.exception
     assert len(at.tabs) == 2
+
+
+def test_app_sbi_file_uploader_rendered() -> None:
+    """マスター管理タブにSBI証券CSVアップローダーが存在することを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+    # 全体のファイルアップローダー（サイドバーの基準価額CSV + マスター管理のSBI証券CSV）
+    uploaders = at.file_uploader
+    assert len(uploaders) >= 2
+    assert any("SBI" in u.label for u in uploaders)
