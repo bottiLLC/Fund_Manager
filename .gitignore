@@ -9,3 +9,4 @@ htmlcov/
 .venv/
 backups/
 data/cache/
+data/backup_config.json
