@@ -91,6 +91,31 @@ def test_parse_portfolio_csv_no_valid_data_error() -> None:
         parse_portfolio_csv_content(csv_data)
 
 
+def test_parse_portfolio_csv_allow_empty() -> None:
+    """allow_empty=True指定時に有効データ行が0件でも空リストが返却されることを検証する。"""
+    # Arrange
+    csv_data = "account,code,isin,units,cost_basis\n"
+
+    # Act
+    items = parse_portfolio_csv_content(csv_data, allow_empty=True)
+
+    # Assert
+    assert items == []
+
+
+def test_load_portfolio_csv_empty_header_only(tmp_path: Path) -> None:
+    """全削除後のヘッダのみCSVをエラーなく空リストとして読み込めることを検証する。"""
+    # Arrange
+    target_file = tmp_path / "empty_portfolio.csv"
+    target_file.write_text("account,code,isin,units,cost_basis\n", encoding="utf-8")
+
+    # Act
+    items = load_portfolio_csv(target_file)
+
+    # Assert
+    assert items == []
+
+
 def test_load_portfolio_csv_creates_default_if_not_exists(tmp_path: Path) -> None:
     """指定パスが存在しない場合、デフォルトファイルを作成して読み込むことを検証する。"""
     # Arrange

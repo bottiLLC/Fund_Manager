@@ -101,11 +101,16 @@ DEFAULT_SAMPLE_PORTFOLIO: Final[str] = (
 )
 
 
-def parse_portfolio_csv_content(csv_content: str) -> list[PortfolioItem]:
+def parse_portfolio_csv_content(
+    csv_content: str,
+    *,
+    allow_empty: bool = False,
+) -> list[PortfolioItem]:
     """CSV文字列を解析し、PortfolioItemのリストを返す。
 
     Args:
         csv_content: CSV形式の生テキスト文字列。
+        allow_empty: 有効銘柄データが0件の場合に空リストを許容するかどうか。
 
     Returns:
         検証済みのPortfolioItemインスタンスのリスト。
@@ -190,18 +195,23 @@ def parse_portfolio_csv_content(csv_content: str) -> list[PortfolioItem]:
         )
         items.append(item)
 
-    if not items:
+    if not items and not allow_empty:
         msg = "有効な保有銘柄データが1件も存在しません。"
         raise ValueError(msg)
 
     return items
 
 
-def load_portfolio_csv(file_path: Path) -> list[PortfolioItem]:
+def load_portfolio_csv(
+    file_path: Path,
+    *,
+    allow_empty: bool = True,
+) -> list[PortfolioItem]:
     """ファイルパスから保有資産CSVを読み込む。不在時はデフォルトサンプルを生成する。
 
     Args:
         file_path: 読み込み対象のCSVパス。
+        allow_empty: 有効銘柄データが0件の場合に空リストを許容するかどうか。
 
     Returns:
         検証済みのPortfolioItemインスタンスのリスト。
@@ -212,7 +222,7 @@ def load_portfolio_csv(file_path: Path) -> list[PortfolioItem]:
         resolved_path.write_text(DEFAULT_SAMPLE_PORTFOLIO, encoding="utf-8")
 
     content = resolved_path.read_text(encoding="utf-8")
-    return parse_portfolio_csv_content(content)
+    return parse_portfolio_csv_content(content, allow_empty=allow_empty)
 
 
 def save_portfolio_csv(file_path: Path, items: list[PortfolioItem]) -> None:

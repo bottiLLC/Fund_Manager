@@ -120,3 +120,23 @@ def test_app_master_tab_controls() -> None:
     # 反映方式のラジオボタン存在確認
     radios = at.radio
     assert any("反映方式" in r.label for r in radios)
+
+
+def test_app_empty_portfolio_renders_safely() -> None:
+    """全レコード削除等で保有資産が0件の場合にエラーなく描画され、マスター管理UIが稼働することを検証する。"""
+    with patch("src.portfolio_loader.load_portfolio_csv", return_value=[]):
+        at = AppTest.from_file(_APP_PATH, default_timeout=30)
+        at.run()
+
+        assert not at.exception
+        # エラーバナーが出現しないこと
+        assert len(at.error) == 0
+
+        # 保有銘柄なしの案内情報が表示されること
+        infos = [i.value for i in at.info]
+        assert any("現在、保有銘柄が登録されていません" in info for info in infos)
+
+        # マスター管理タブの追加フォームおよびアップローダーが存在すること
+        uploaders = at.file_uploader
+        assert any("portfolio.csv を選択" in u.label for u in uploaders)
+        assert any("SBI" in u.label for u in uploaders)
