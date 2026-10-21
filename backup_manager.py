@@ -20,7 +20,7 @@ def get_backup_dir() -> Path:
                 custom_path = data.get("backup_dir")
                 if custom_path:
                     return Path(custom_path).resolve()
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             pass
 
     env_dir = os.getenv("BACKUP_DIR")

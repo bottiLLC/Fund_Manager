@@ -280,7 +280,7 @@ def fetch_latest_nav_and_names(
     if meta_cache_file.exists():
         try:
             cached_meta = json.loads(meta_cache_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             cached_meta = {}
 
     nav_map: dict[str, float] = {}

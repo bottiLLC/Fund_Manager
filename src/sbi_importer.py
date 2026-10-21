@@ -269,7 +269,7 @@ def load_custom_aliases(file_path: Path) -> dict[str, tuple[str, str]]:
                 if isinstance(v, (list, tuple)) and len(v) >= 2:
                     res[str(k)] = (str(v[0]), str(v[1]))
             return res
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         pass
     return {}
 
