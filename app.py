@@ -625,6 +625,21 @@ with tab_master:
         "銘柄名からの投信協会コード自動逆引き、事前バックアップ、および洗い替え/追記保存を実行します。"
     )
 
+    # 取込完了通知＆結果詳細の表示（rerun後も確実に表示）
+    if "sbi_import_result" in st.session_state:
+        res = st.session_state["sbi_import_result"]
+        st.success(
+            f"🎉 SBI証券CSVの取り込みが完了しました（全 {res['count']} 件保存完了）。事前バックアップ: `{res['backup_filename']}`"
+        )
+        with st.expander("📊 最新の取込結果サマリー・明細を確認", expanded=True):
+            st.markdown(f"- **反映方式**: {res['mode_label']}")
+            st.markdown(f"- **保存ファイル**: `{portfolio_csv_path.name}`")
+            if res.get("items"):
+                st.dataframe(pd.DataFrame(res["items"]), use_container_width=True)
+            if st.button("✕ 取込結果メッセージを閉じる", key="btn_close_sbi_result"):
+                del st.session_state["sbi_import_result"]
+                st.rerun()
+
     sbi_file = st.file_uploader(
         "SBI証券のポートフォリオCSVを選択",
         type=["csv"],
@@ -815,6 +830,11 @@ with tab_master:
 
                 all_ready = all(rc.is_resolved for rc in resolved_candidates)
 
+                if not all_ready:
+                    st.warning(
+                        "⚠️ 投信協会コードが未特定の銘柄があります。上記の入力欄に8桁コードを入力すると保存ボタンが有効になります。"
+                    )
+
                 if st.button(
                     "🚀 SBI証券ポートフォリオを取り込んで保存",
                     type="primary",
@@ -846,9 +866,30 @@ with tab_master:
                         save_portfolio_csv(portfolio_csv_path, merged_portfolio)
                         st.cache_data.clear()
 
-                    st.success(
-                        f"🎉 インポートが完了しました（全 {len(merged_portfolio)} 件）。事前バックアップ作成済み: {backup_res.get('filename')}"
-                    )
+                        # 5. 取込結果をセッションステートに保持してrerun後も確実に表示
+                        mode_text = (
+                            "追記方式（既存データ保持＋今回分追加）"
+                            if merge_mode_selected == MergeMode.APPEND
+                            else "洗い替え方式（今回分で全置換）"
+                        )
+                        st.session_state["sbi_import_result"] = {
+                            "count": len(merged_portfolio),
+                            "backup_filename": backup_res.get("filename", "バックアップ完了"),
+                            "mode_label": mode_text,
+                            "items": [
+                                {
+                                    "法人/個人": item.holder,
+                                    "格納口座": item.account,
+                                    "協会コード": item.code,
+                                    "ISIN": item.isin,
+                                    "銘柄名": item.name,
+                                    "保有口数": item.units,
+                                    "取得簿価(円)": format_yen(item.cost_basis),
+                                }
+                                for item in merged_portfolio
+                            ],
+                        }
+
                     st.rerun()
 
         except Exception as import_err:

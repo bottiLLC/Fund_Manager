@@ -164,3 +164,37 @@ def test_app_sbi_csv_upload_mapping_controls() -> None:
     assert any("所有者区分" in r.label for r in radios)
     holder_radios = [r for r in radios if "所有者区分" in r.label]
     assert holder_radios[0].options == ["個人", "法人", "個人(DC)"]
+
+
+def test_app_sbi_import_result_card_rendered_and_closed() -> None:
+    """インポート完了後にセッションステートの結果表示および閉じるボタンが正常稼働することを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.session_state["sbi_import_result"] = {
+        "count": 2,
+        "backup_filename": "backup_pre_sbi_import_20261022.zip",
+        "mode_label": "追記方式",
+        "items": [
+            {
+                "法人/個人": "個人",
+                "格納口座": "NISA預り（成長投資枠）",
+                "協会コード": "0331418A",
+                "ISIN": "JP90C000H1T1",
+                "銘柄名": "テスト全世界株",
+                "保有口数": 1000.0,
+                "取得簿価(円)": "¥15,000",
+            }
+        ],
+    }
+    at.run()
+    assert not at.exception
+
+    # 完了バナーおよびexpander結果が表示されること
+    success_boxes = [s.value for s in at.success]
+    assert any("SBI証券CSVの取り込みが完了しました" in s for s in success_boxes)
+
+    # 閉じるボタンのクリックでセッションステートが削除されること
+    close_btns = [b for b in at.button if "取込結果メッセージを閉じる" in b.label]
+    assert len(close_btns) == 1
+    close_btns[0].click().run()
+    assert not at.exception
+    assert "sbi_import_result" not in at.session_state
