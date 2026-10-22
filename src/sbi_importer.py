@@ -58,8 +58,16 @@ class SbiRawRecord(BaseModel):
 
     @property
     def calculated_cost_basis(self) -> int:
-        """取得単価と保有口数から算出した簿価合計（円単位）。"""
-        return int(round(self.quantity * self.acquisition_price / 10000.0))
+        """取得単価と保有口数から算出した簿価合計（円単位）。
+
+        取得単価が正値の場合は『数量 × 取得単価 ÷ 10,000』で高精度算出。
+        移管等で取得単価が0値・欠損の場合は『評価額 － 含み損益』からフォールバック算出する。
+        """
+        if self.acquisition_price > 0.0:
+            return int(round(self.quantity * self.acquisition_price / 10000.0))
+        if self.valuation > 0.0:
+            return max(0, int(round(self.valuation - self.profit_loss)))
+        return 0
 
 
 class ImportCandidate(BaseModel):

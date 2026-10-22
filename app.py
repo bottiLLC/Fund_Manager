@@ -715,7 +715,7 @@ with tab_master:
                         "ISIN": rc.resolved_isin or "---",
                         "保有口数": rc.source_record.quantity,
                         "取得単価": rc.source_record.acquisition_price,
-                        "算出簿価(円)": format_yen(rc.source_record.calculated_cost_basis),
+                        "取得価額(簿価, 円)": format_yen(rc.source_record.calculated_cost_basis),
                         "評価額(円)": format_yen(int(round(rc.source_record.valuation))),
                     }
                     for rc in resolved_candidates

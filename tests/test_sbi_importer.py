@@ -148,6 +148,41 @@ def test_parse_sbi_portfolio_csv_edge_cases() -> None:
     assert records[1].acquisition_price == 0.0
 
 
+def test_sbi_raw_record_calculated_cost_basis() -> None:
+    # 1. 取得単価が正値の場合: 数量 × 取得単価 ÷ 10,000
+    rec_normal = SbiRawRecord(
+        raw_account_section="投資信託（金額/特定口座）",
+        fund_name="通常ファンド",
+        quantity=1942.0,
+        acquisition_price=28420.0,
+        valuation=8728.0,
+        profit_loss=3209.0,
+    )
+    assert rec_normal.calculated_cost_basis == 5519
+
+    # 2. 取得単価が0で評価額と損益が存在する場合: 評価額 - 損益 (フォールバック)
+    rec_fallback = SbiRawRecord(
+        raw_account_section="投資信託（金額/特定口座）",
+        fund_name="移管ファンド",
+        quantity=1000.0,
+        acquisition_price=0.0,
+        valuation=15000.0,
+        profit_loss=3000.0,
+    )
+    assert rec_fallback.calculated_cost_basis == 12000
+
+    # 3. 取得単価0かつ評価額0の場合: 0
+    rec_zero = SbiRawRecord(
+        raw_account_section="投資信託（金額/特定口座）",
+        fund_name="残高ゼロファンド",
+        quantity=100.0,
+        acquisition_price=0.0,
+        valuation=0.0,
+        profit_loss=0.0,
+    )
+    assert rec_zero.calculated_cost_basis == 0
+
+
 def test_load_and_save_custom_aliases(tmp_path: Path) -> None:
     alias_file = tmp_path / "custom_aliases.json"
     assert load_custom_aliases(alias_file) == {}
@@ -312,8 +347,11 @@ def test_merge_candidates_into_portfolio_append() -> None:
     # 同一銘柄であってもまとめず、3行すべてが独立して保持される
     assert len(merged) == 3
     assert merged[0].account == "NISA" and merged[0].units == 100.0
+    assert merged[0].cost_basis == 2000
     assert merged[1].account == "法人" and merged[1].units == 500.0
+    assert merged[1].cost_basis == 1500  # 500 * 30000 / 10000
     assert merged[2].account == "NISA" and merged[2].units == 50.0
+    assert merged[2].cost_basis == 155  # 50 * 31000 / 10000
 
 
 def test_merge_candidates_into_portfolio_replace_all() -> None:
@@ -347,6 +385,7 @@ def test_merge_candidates_into_portfolio_replace_all() -> None:
     assert len(merged) == 1
     assert merged[0].account == "法人"
     assert merged[0].code == "0331124A"
+    assert merged[0].cost_basis == 450  # 300 * 15000 / 10000
 
 
 def test_merge_candidates_unresolved_raises_value_error() -> None:
