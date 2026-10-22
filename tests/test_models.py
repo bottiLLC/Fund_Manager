@@ -47,6 +47,15 @@ def test_portfolio_item_holder_custom() -> None:
     )
     assert item_corp.holder == "法人"
 
+    # 個人(DC)
+    item_dc = PortfolioItem(
+        holder="個人(DC)",
+        account="DC",
+        code="0331418A",
+        units=100.0,
+    )
+    assert item_dc.holder == "個人(DC)"
+
     # 空文字渡しの場合はデフォルト "個人" にフォールバック
     item_empty = PortfolioItem(
         holder="   ",
@@ -55,6 +64,15 @@ def test_portfolio_item_holder_custom() -> None:
         units=100.0,
     )
     assert item_empty.holder == "個人"
+
+    # 許可されていない値は ValidationError
+    with pytest.raises(ValidationError, match="所有者区分は"):
+        PortfolioItem(
+            holder="投資信託組合",
+            account="特定預り",
+            code="0331418A",
+            units=100.0,
+        )
 
 
 @pytest.mark.parametrize(

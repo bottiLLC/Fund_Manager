@@ -17,7 +17,7 @@ import streamlit as st
 from backup_manager import get_backup_dir, run_backup, set_backup_dir
 from src.calculator import evaluate_portfolio
 from src.formatter import format_rate, format_yen
-from src.models import PortfolioItem
+from src.models import HOLDER_OPTIONS, PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
 from src.portfolio_loader import (
     PRESET_FUNDS,
@@ -326,7 +326,7 @@ with tab_master:
         with add_col0:
             form_holder = st.selectbox(
                 "法人/個人",
-                ["個人", "法人"],
+                list(HOLDER_OPTIONS),
             )
         with add_col1:
             form_account = st.selectbox(
@@ -453,7 +453,7 @@ with tab_master:
             ),
             "holder": st.column_config.SelectboxColumn(
                 "法人/個人",
-                options=["個人", "法人"],
+                options=list(HOLDER_OPTIONS),
                 required=True,
                 default="個人",
             ),
@@ -656,7 +656,7 @@ with tab_master:
 
                 global_holder = st.radio(
                     "今回インポートする明細の所有者区分（手入力）",
-                    options=["個人", "法人"],
+                    options=list(HOLDER_OPTIONS),
                     horizontal=True,
                     index=0,
                     key="sbi_global_holder_radio",
@@ -682,10 +682,18 @@ with tab_master:
                                 "特定預り",
                             }
                         )
+                        holder_options = list(HOLDER_OPTIONS)
+                        if "DC" in section or default_target == "DC":
+                            default_sec_holder_idx = holder_options.index("個人(DC)")
+                        elif global_holder in holder_options:
+                            default_sec_holder_idx = holder_options.index(global_holder)
+                        else:
+                            default_sec_holder_idx = 0
+
                         selected_holder = st.selectbox(
                             f"『{section}』の法人/個人",
-                            options=["個人", "法人"],
-                            index=0 if global_holder == "個人" else 1,
+                            options=holder_options,
+                            index=default_sec_holder_idx,
                             key=f"sec_holder_{idx}",
                         )
                         selected_acc = st.selectbox(

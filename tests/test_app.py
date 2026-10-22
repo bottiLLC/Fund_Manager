@@ -159,6 +159,8 @@ def test_app_sbi_csv_upload_mapping_controls() -> None:
     sbi_uploaders[0].upload("sbi_test.csv", sbi_content.encode("cp932")).run()
     assert not at.exception
 
-    # 所有者区分のラジオボタンが表示されること
+    # 所有者区分のラジオボタンが表示され、選択肢に 個人(DC) が含まれること
     radios = at.radio
     assert any("所有者区分" in r.label for r in radios)
+    holder_radios = [r for r in radios if "所有者区分" in r.label]
+    assert holder_radios[0].options == ["個人", "法人", "個人(DC)"]

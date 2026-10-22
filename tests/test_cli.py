@@ -79,6 +79,34 @@ def test_cli_main_import_sbi_success(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "法人,NISA預り（成長投資枠）" in saved_text
 
 
+def test_cli_main_import_sbi_holder_dc(tmp_path: Path) -> None:
+    """CLIの --holder 個人(DC) 指定によるインポートを検証する。"""
+    csv_file = tmp_path / "portfolio.csv"
+    sbi_csv = tmp_path / "sbi_dc.csv"
+    sbi_content = """\
+"投資信託（金額/DC）"
+"ファンド名","買付日","数量","取得単価","現在値","損益","評価額"
+"ｅＭＡＸＩＳ Ｓｌｉｍ 米国株式（Ｓ＆Ｐ５００）","----/--/--",1000,28420,44943,0,0
+"""
+    sbi_csv.write_text(sbi_content, encoding="cp932")
+
+    test_args = [
+        "cli.py",
+        "--csv",
+        str(csv_file),
+        "--import-sbi",
+        str(sbi_csv),
+        "--holder",
+        "個人(DC)",
+    ]
+    with patch.object(sys, "argv", test_args):
+        ret = main()
+
+    assert ret == 0
+    saved_text = csv_file.read_text(encoding="utf-8")
+    assert "個人(DC),DC" in saved_text
+
+
 def test_cli_main_import_sbi_modes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """CLIでの --mode append と --mode replace の動作を検証する。"""
     csv_file = tmp_path / "portfolio.csv"

@@ -340,7 +340,7 @@ def resolve_candidates(
         existing_items: 現在登録済みのPortfolioItemリスト。
         custom_aliases: 学習済みカスタム名寄せ辞書。
         account_override_map: 口座名のユーザー指定置換マップ（オプション）。
-        default_holder: デフォルトの所有者区分（"個人" または "法人"）。
+        default_holder: デフォルトの所有者区分（"個人"、"法人"、または "個人(DC)"）。
         holder_override_map: セクション/口座ごとの所有者区分置換マップ（オプション）。
 
     Returns:

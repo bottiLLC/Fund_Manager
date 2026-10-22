@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FUND_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^[0-9A-Z]{8}$")
 ISIN_CODE_REGEX: Final[re.Pattern[str]] = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
+HOLDER_OPTIONS: Final[tuple[str, ...]] = ("個人", "法人", "個人(DC)")
 
 
 class PortfolioItem(BaseModel):
@@ -18,7 +19,7 @@ class PortfolioItem(BaseModel):
 
     holder: str = Field(
         default="個人",
-        description="所有者区分（法人 / 個人。手入力指定）",
+        description="所有者区分（個人 / 法人 / 個人(DC)。手入力指定）",
     )
     account: str = Field(
         ...,
@@ -55,7 +56,12 @@ class PortfolioItem(BaseModel):
     @classmethod
     def validate_holder(cls, v: str) -> str:
         cleaned = v.strip()
-        return cleaned if cleaned else "個人"
+        if not cleaned:
+            return "個人"
+        if cleaned not in HOLDER_OPTIONS:
+            msg = f"所有者区分は {HOLDER_OPTIONS} のいずれかである必要があります: {v}"
+            raise ValueError(msg)
+        return cleaned
 
 
 class FundInfo(BaseModel):

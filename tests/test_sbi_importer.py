@@ -259,7 +259,10 @@ def test_resolve_candidates_cascade() -> None:
         custom_aliases=custom_aliases,
         account_override_map={"NISA預り（成長投資枠）": "NISA"},
         default_holder="個人",
-        holder_override_map={"NISA預り（成長投資枠）": "法人"},
+        holder_override_map={
+            "NISA預り（成長投資枠）": "法人",
+            "NISA預り（つみたて投資枠）": "個人(DC)",
+        },
     )
 
     assert len(candidates) == 9
@@ -271,7 +274,7 @@ def test_resolve_candidates_cascade() -> None:
     assert candidates[0].target_account == "NISA"
     assert candidates[0].holder == "法人"
     assert candidates[2].target_account == "NISA預り（つみたて投資枠）"
-    assert candidates[2].holder == "個人"
+    assert candidates[2].holder == "個人(DC)"
 
 
 def test_resolve_candidates_partial_match_and_unresolved() -> None:

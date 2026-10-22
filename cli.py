@@ -20,7 +20,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from backup_manager import run_backup
 from src.calculator import evaluate_portfolio
 from src.formatter import format_cli_report
-from src.models import PortfolioItem
+from src.models import HOLDER_OPTIONS, PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv, save_portfolio_csv
 from src.sbi_importer import (
@@ -59,6 +59,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--holder",
         type=str,
+        choices=list(HOLDER_OPTIONS),
         default="個人",
         help="SBI証券CSVインポート時の所有者区分 (デフォルト: 個人)",
     )

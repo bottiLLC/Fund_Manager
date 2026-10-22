@@ -196,13 +196,16 @@ def test_parse_portfolio_csv_with_explicit_holder() -> None:
         "holder,account,code,isin,units,cost_basis\n"
         "法人,一般預り,0331418A,JP90C000H1T1,500.0,10000\n"
         "個人,NISA預り（成長投資枠）,03311187,JP90C000GKC6,300.0,5000\n"
+        "個人(DC),DC,03312187,JP90C000GKC7,200.0,4000\n"
     )
     items = parse_portfolio_csv_content(csv_data)
-    assert len(items) == 2
+    assert len(items) == 3
     assert items[0].holder == "法人"
     assert items[0].account == "一般預り"
     assert items[1].holder == "個人"
     assert items[1].account == "NISA預り（成長投資枠）"
+    assert items[2].holder == "個人(DC)"
+    assert items[2].account == "DC"
 
 
 def test_save_portfolio_csv_cleanup_on_error(tmp_path: Path) -> None:
