@@ -140,3 +140,25 @@ def test_app_empty_portfolio_renders_safely() -> None:
         uploaders = at.file_uploader
         assert any("portfolio.csv を選択" in u.label for u in uploaders)
         assert any("SBI" in u.label for u in uploaders)
+
+
+def test_app_sbi_csv_upload_mapping_controls() -> None:
+    """SBI証券CSVをアップロードした際に所有者区分（法人/個人）と格納口座の初期値が正しく提示されることを検証する。"""
+    sbi_content = """\
+"投資信託（金額/NISA口座（成長投資枠））"
+"ファンド名","買付日","数量","取得単価","現在値","損益","評価額"
+"ｅＭＡＸＩＳ Ｓｌｉｍ 米国株式（Ｓ＆Ｐ５００）","----/--/--",1000,28420,44943,0,0
+"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # SBI CSV のアップローダーを取得して模擬ファイルをセット
+    sbi_uploaders = [u for u in at.file_uploader if "SBI" in u.label]
+    assert len(sbi_uploaders) >= 1
+    sbi_uploaders[0].upload("sbi_test.csv", sbi_content.encode("cp932")).run()
+    assert not at.exception
+
+    # 所有者区分のラジオボタンが表示されること
+    radios = at.radio
+    assert any("所有者区分" in r.label for r in radios)

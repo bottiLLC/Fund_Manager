@@ -26,13 +26,27 @@ ACCOUNT_SECTION_PATTERN: Final[re.Pattern[str]] = re.compile(r"投資信託[（\
 
 # 標準口座名の正規化辞書
 DEFAULT_ACCOUNT_MAP: Final[dict[str, str]] = {
-    "NISA口座（成長投資枠）": "NISA成長",
-    "NISA口座(成長投資枠)": "NISA成長",
-    "NISA口座（つみたて投資枠）": "NISAつみたて",
-    "NISA口座(つみたて投資枠)": "NISAつみたて",
-    "旧つみたてNISA口座": "旧つみたてNISA",
-    "特定口座": "特定",
-    "一般口座": "一般",
+    # NISA（つみたて投資枠）
+    "NISA口座（つみたて投資枠）": "NISA預り（つみたて投資枠）",
+    "NISA口座(つみたて投資枠)": "NISA預り（つみたて投資枠）",
+    "NISA預り（つみたて投資枠）": "NISA預り（つみたて投資枠）",
+    "NISA預り(つみたて投資枠)": "NISA預り（つみたて投資枠）",
+    # NISA（成長投資枠）
+    "NISA口座（成長投資枠）": "NISA預り（成長投資枠）",
+    "NISA口座(成長投資枠)": "NISA預り（成長投資枠）",
+    "NISA預り（成長投資枠）": "NISA預り（成長投資枠）",
+    "NISA預り(成長投資枠)": "NISA預り（成長投資枠）",
+    # 旧つみたてNISA
+    "旧つみたてNISA口座": "NISA預り（旧つみたてNISA預り）",
+    "旧つみたてNISA預り": "NISA預り（旧つみたてNISA預り）",
+    "NISA預り（旧つみたてNISA預り）": "NISA預り（旧つみたてNISA預り）",
+    "NISA預り(旧つみたてNISA預り)": "NISA預り（旧つみたてNISA預り）",
+    # 一般
+    "一般口座": "一般預り",
+    "一般預り": "一般預り",
+    # 特定
+    "特定口座": "特定預り",
+    "特定預り": "特定預り",
 }
 
 
@@ -77,6 +91,7 @@ class ImportCandidate(BaseModel):
 
     source_record: SbiRawRecord
     target_account: str
+    holder: str = "個人"
     resolved_code: str = ""
     resolved_isin: str = ""
     is_resolved: bool = False
@@ -310,6 +325,8 @@ def resolve_candidates(
     existing_items: list[PortfolioItem],
     custom_aliases: dict[str, tuple[str, str]],
     account_override_map: dict[str, str] | None = None,
+    default_holder: str = "個人",
+    holder_override_map: dict[str, str] | None = None,
 ) -> list[ImportCandidate]:
     """SBIレコード群に対してカスケード名寄せを行い、インポート候補リストを生成する。
 
@@ -323,6 +340,8 @@ def resolve_candidates(
         existing_items: 現在登録済みのPortfolioItemリスト。
         custom_aliases: 学習済みカスタム名寄せ辞書。
         account_override_map: 口座名のユーザー指定置換マップ（オプション）。
+        default_holder: デフォルトの所有者区分（"個人" または "法人"）。
+        holder_override_map: セクション/口座ごとの所有者区分置換マップ（オプション）。
 
     Returns:
         解決状態フラグ付きの ImportCandidate リスト。
@@ -343,10 +362,12 @@ def resolve_candidates(
 
     candidates: list[ImportCandidate] = []
     override_map = account_override_map or {}
+    h_override_map = holder_override_map or {}
 
     for record in records:
         default_account = extract_account_name(record.raw_account_section)
         target_account = override_map.get(default_account, default_account)
+        target_holder = h_override_map.get(default_account, default_holder)
 
         norm_key = normalize_string_key(record.fund_name)
         resolved_code = ""
@@ -376,6 +397,7 @@ def resolve_candidates(
         candidate = ImportCandidate(
             source_record=record,
             target_account=target_account,
+            holder=target_holder,
             resolved_code=resolved_code,
             resolved_isin=resolved_isin,
             is_resolved=is_resolved,
@@ -412,6 +434,7 @@ def merge_candidates_into_portfolio(
     # 候補から新規 PortfolioItem を生成
     incoming_items: list[PortfolioItem] = [
         PortfolioItem(
+            holder=c.holder,
             account=c.target_account,
             code=c.resolved_code,
             isin=c.resolved_isin,

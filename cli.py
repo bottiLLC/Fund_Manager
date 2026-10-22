@@ -56,6 +56,12 @@ def parse_arguments() -> argparse.Namespace:
         default="append",
         help="インポート方式: append (追記・デフォルト) または replace (洗い替え)",
     )
+    parser.add_argument(
+        "--holder",
+        type=str,
+        default="個人",
+        help="SBI証券CSVインポート時の所有者区分 (デフォルト: 個人)",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +97,7 @@ def main() -> int:
                 records=records,
                 existing_items=portfolio_items,
                 custom_aliases=custom_aliases,
+                default_holder=args.holder,
             )
 
             unresolved = [c for c in candidates if not c.is_resolved]

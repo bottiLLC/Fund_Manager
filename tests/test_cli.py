@@ -66,13 +66,17 @@ def test_cli_main_import_sbi_success(tmp_path: Path, capsys: pytest.CaptureFixtu
 """
     sbi_csv.write_text(sbi_content, encoding="cp932")
 
-    test_args = ["cli.py", "--csv", str(csv_file), "--import-sbi", str(sbi_csv)]
+    test_args = ["cli.py", "--csv", str(csv_file), "--import-sbi", str(sbi_csv), "--holder", "法人"]
     with patch.object(sys, "argv", test_args):
         ret = main()
 
     assert ret == 0
     captured = capsys.readouterr()
     assert "SBI証券CSVを正常にインポートしました" in captured.out
+
+    # CSV内に holder=法人 と account=NISA預り（成長投資枠） が保存されたことを検証
+    saved_text = csv_file.read_text(encoding="utf-8")
+    assert "法人,NISA預り（成長投資枠）" in saved_text
 
 
 def test_cli_main_import_sbi_modes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

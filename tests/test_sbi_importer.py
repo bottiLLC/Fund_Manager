@@ -94,12 +94,29 @@ def test_parse_numeric_cell() -> None:
 
 
 def test_extract_account_name() -> None:
-    assert extract_account_name("投資信託（金額/NISA口座（成長投資枠））") == "NISA成長"
-    assert extract_account_name("投資信託(金額/NISA口座(つみたて投資枠))") == "NISAつみたて"
-    assert extract_account_name("投資信託（金額/旧つみたてNISA口座）") == "旧つみたてNISA"
-    assert extract_account_name("投資信託（金額/特定口座）") == "特定"
+    assert (
+        extract_account_name("投資信託（金額/NISA口座（成長投資枠））") == "NISA預り（成長投資枠）"
+    )
+    assert (
+        extract_account_name("投資信託(金額/NISA口座(つみたて投資枠))")
+        == "NISA預り（つみたて投資枠）"
+    )
+    assert (
+        extract_account_name("投資信託（金額/旧つみたてNISA口座）")
+        == "NISA預り（旧つみたてNISA預り）"
+    )
+    assert extract_account_name("投資信託（金額/特定口座）") == "特定預り"
+    assert extract_account_name("投資信託（金額/一般口座）") == "一般預り"
+    assert (
+        extract_account_name("投資信託（金額/NISA預り（つみたて投資枠））")
+        == "NISA預り（つみたて投資枠）"
+    )
+    assert (
+        extract_account_name("投資信託（金額/NISA預り（成長投資枠））") == "NISA預り（成長投資枠）"
+    )
+    assert extract_account_name("投資信託（金額/一般預り）") == "一般預り"
     assert extract_account_name("投資信託（金額/未知の口座）") == "未知の口座"
-    assert extract_account_name('"特定口座"') == "特定"
+    assert extract_account_name('"特定口座"') == "特定預り"
 
 
 def test_parse_sbi_portfolio_csv_real_data() -> None:
@@ -240,7 +257,9 @@ def test_resolve_candidates_cascade() -> None:
         records=records,
         existing_items=existing_items,
         custom_aliases=custom_aliases,
-        account_override_map={"NISA成長": "NISA"},
+        account_override_map={"NISA預り（成長投資枠）": "NISA"},
+        default_holder="個人",
+        holder_override_map={"NISA預り（成長投資枠）": "法人"},
     )
 
     assert len(candidates) == 9
@@ -250,7 +269,9 @@ def test_resolve_candidates_cascade() -> None:
         assert len(c.resolved_isin) == 12
 
     assert candidates[0].target_account == "NISA"
-    assert candidates[2].target_account == "NISAつみたて"
+    assert candidates[0].holder == "法人"
+    assert candidates[2].target_account == "NISA預り（つみたて投資枠）"
+    assert candidates[2].holder == "個人"
 
 
 def test_resolve_candidates_partial_match_and_unresolved() -> None:
@@ -305,7 +326,8 @@ def test_merge_candidates_into_portfolio_append() -> None:
     # 既存: 個人口座で 03311187 (S&P500) を保有
     existing = [
         PortfolioItem(
-            account="NISA",
+            holder="個人",
+            account="NISA預り（成長投資枠）",
             code="03311187",
             isin="JP90C000GKC6",
             name="S&P500個人",
@@ -321,12 +343,13 @@ def test_merge_candidates_into_portfolio_append() -> None:
             quantity=500.0,
             acquisition_price=30000.0,
         ),
-        target_account="法人",
+        target_account="一般預り",
+        holder="法人",
         resolved_code="03311187",
         resolved_isin="JP90C000GKC6",
         is_resolved=True,
     )
-    # 追加候補: 同一口座(NISA)で別枠・別行として購入された分
+    # 追加候補: 同一口座で別枠・別行として購入された分
     candidate_nisa_add = ImportCandidate(
         source_record=SbiRawRecord(
             raw_account_section="NISA",
@@ -334,7 +357,8 @@ def test_merge_candidates_into_portfolio_append() -> None:
             quantity=50.0,
             acquisition_price=31000.0,
         ),
-        target_account="NISA",
+        target_account="NISA預り（成長投資枠）",
+        holder="個人",
         resolved_code="03311187",
         resolved_isin="JP90C000GKC6",
         is_resolved=True,
@@ -346,18 +370,29 @@ def test_merge_candidates_into_portfolio_append() -> None:
 
     # 同一銘柄であってもまとめず、3行すべてが独立して保持される
     assert len(merged) == 3
-    assert merged[0].account == "NISA" and merged[0].units == 100.0
+    assert (
+        merged[0].holder == "個人"
+        and merged[0].account == "NISA預り（成長投資枠）"
+        and merged[0].units == 100.0
+    )
     assert merged[0].cost_basis == 2000
-    assert merged[1].account == "法人" and merged[1].units == 500.0
+    assert (
+        merged[1].holder == "法人" and merged[1].account == "一般預り" and merged[1].units == 500.0
+    )
     assert merged[1].cost_basis == 1500  # 500 * 30000 / 10000
-    assert merged[2].account == "NISA" and merged[2].units == 50.0
+    assert (
+        merged[2].holder == "個人"
+        and merged[2].account == "NISA預り（成長投資枠）"
+        and merged[2].units == 50.0
+    )
     assert merged[2].cost_basis == 155  # 50 * 31000 / 10000
 
 
 def test_merge_candidates_into_portfolio_replace_all() -> None:
     existing = [
         PortfolioItem(
-            account="NISA",
+            holder="個人",
+            account="NISA預り（成長投資枠）",
             code="03311187",
             isin="JP90C000GKC6",
             name="旧S&P500",
@@ -372,7 +407,8 @@ def test_merge_candidates_into_portfolio_replace_all() -> None:
             quantity=300.0,
             acquisition_price=15000.0,
         ),
-        target_account="法人",
+        target_account="一般預り",
+        holder="法人",
         resolved_code="0331124A",
         resolved_isin="JP90C000R9Z9",
         is_resolved=True,
@@ -383,7 +419,8 @@ def test_merge_candidates_into_portfolio_replace_all() -> None:
     )
 
     assert len(merged) == 1
-    assert merged[0].account == "法人"
+    assert merged[0].holder == "法人"
+    assert merged[0].account == "一般預り"
     assert merged[0].code == "0331124A"
     assert merged[0].cost_basis == 450  # 300 * 15000 / 10000
 

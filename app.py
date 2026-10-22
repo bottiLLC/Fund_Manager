@@ -269,7 +269,8 @@ with tab_dashboard:
 
             detail_rows.append(
                 {
-                    "口座": h.item.account,
+                    "法人/個人": h.item.holder,
+                    "格納口座": h.item.account,
                     "銘柄名": h.item.name,
                     "協会コード": h.item.code,
                     "ISINコード": h.item.isin,
@@ -321,11 +322,24 @@ with tab_master:
     # 新規追加フォーム
     with st.form("add_holding_form", clear_on_submit=True):
         st.markdown("##### ➕ 新規保有資産の追加")
-        add_col1, add_col2, add_col3 = st.columns(3)
+        add_col0, add_col1, add_col2, add_col3 = st.columns([1, 2, 2, 2])
+        with add_col0:
+            form_holder = st.selectbox(
+                "法人/個人",
+                ["個人", "法人"],
+            )
         with add_col1:
             form_account = st.selectbox(
-                "口座種別 (account)",
-                ["法人", "NISA", "特定", "iDeCo", "DC", "一般"],
+                "格納口座 (account)",
+                [
+                    "NISA預り（つみたて投資枠）",
+                    "NISA預り（成長投資枠）",
+                    "NISA預り（旧つみたてNISA預り）",
+                    "一般預り",
+                    "特定預り",
+                    "iDeCo",
+                    "DC",
+                ],
             )
         with add_col2:
             form_code = st.text_input(
@@ -363,6 +377,7 @@ with tab_master:
         if submitted_add:
             try:
                 new_item = PortfolioItem(
+                    holder=form_holder,
                     account=form_account,
                     code=form_code,
                     isin=form_isin,
@@ -373,7 +388,9 @@ with tab_master:
                 updated_items = [*portfolio_items, new_item]
                 save_portfolio_csv(portfolio_csv_path, updated_items)
                 st.cache_data.clear()
-                st.success(f"{form_account} に銘柄コード {new_item.code} を追加しました。")
+                st.success(
+                    f"[{form_holder}] {form_account} に銘柄コード {new_item.code} を追加しました。"
+                )
                 st.rerun()
             except Exception as ex:
                 st.error(f"追加エラー: {ex}")
@@ -385,6 +402,7 @@ with tab_master:
     edit_data = [
         {
             "delete": False,
+            "holder": it.holder,
             "account": it.account,
             "code": it.code,
             "isin": it.isin,
@@ -396,7 +414,20 @@ with tab_master:
     ]
     edit_df = pd.DataFrame(
         edit_data,
-        columns=["delete", "account", "code", "isin", "units", "cost_basis", "name"],
+        columns=["delete", "holder", "account", "code", "isin", "units", "cost_basis", "name"],
+    )
+
+    known_accounts = sorted(
+        {
+            *([it.account for it in portfolio_items]),
+            "NISA預り（つみたて投資枠）",
+            "NISA預り（成長投資枠）",
+            "NISA預り（旧つみたてNISA預り）",
+            "一般預り",
+            "特定預り",
+            "iDeCo",
+            "DC",
+        }
     )
 
     edited_df = st.data_editor(
@@ -406,6 +437,7 @@ with tab_master:
         hide_index=True,
         column_order=[
             "delete",
+            "holder",
             "account",
             "code",
             "isin",
@@ -419,9 +451,15 @@ with tab_master:
                 help="削除する場合はチェックを入れてください",
                 default=False,
             ),
+            "holder": st.column_config.SelectboxColumn(
+                "法人/個人",
+                options=["個人", "法人"],
+                required=True,
+                default="個人",
+            ),
             "account": st.column_config.SelectboxColumn(
-                "口座種別",
-                options=["法人", "NISA", "特定", "iDeCo", "DC", "一般"],
+                "格納口座",
+                options=known_accounts,
                 required=True,
             ),
             "code": st.column_config.TextColumn("協会コード", max_chars=8, required=True),
@@ -466,6 +504,7 @@ with tab_master:
             remaining_items: list[PortfolioItem] = []
             for _, r in edited_df.iterrows():
                 if not bool(r.get("delete", False)):
+                    holder_val = str(r.get("holder", "個人")).strip() or "個人"
                     account_val = str(r["account"]).strip()
                     code_val = str(r["code"]).strip()
                     isin_val = str(r["isin"]).strip()
@@ -474,6 +513,7 @@ with tab_master:
                     if account_val and code_val:
                         remaining_items.append(
                             PortfolioItem(
+                                holder=holder_val,
                                 account=account_val,
                                 code=code_val,
                                 isin=isin_val,
@@ -495,6 +535,7 @@ with tab_master:
             for _, r in edited_df.iterrows():
                 if bool(r.get("delete", False)):
                     continue
+                holder_val = str(r.get("holder", "個人")).strip() or "個人"
                 account_val = str(r["account"]).strip()
                 code_val = str(r["code"]).strip()
                 isin_val = str(r["isin"]).strip()
@@ -503,6 +544,7 @@ with tab_master:
                 if account_val and code_val:
                     validated_save_items.append(
                         PortfolioItem(
+                            holder=holder_val,
                             account=account_val,
                             code=code_val,
                             isin=isin_val,
@@ -607,45 +649,67 @@ with tab_master:
                 if not existing_accounts:
                     existing_accounts = ["法人", "NISA", "特定", "iDeCo", "DC", "一般"]
 
-                st.markdown("##### 1. 口座（タンク）名マッピング設定")
+                st.markdown("##### 1. 所有者区分（法人/個人）および格納口座マッピング設定")
                 st.caption(
-                    "SBI証券上の口座区分を、本アプリで管理する口座名（タンク）へ対応付けます。"
+                    "SBI証券CSVから読み取った口座区分を自動入力しています。法人/個人区分は手入力（選択）してください。"
+                )
+
+                global_holder = st.radio(
+                    "今回インポートする明細の所有者区分（手入力）",
+                    options=["個人", "法人"],
+                    horizontal=True,
+                    index=0,
+                    key="sbi_global_holder_radio",
                 )
 
                 account_map: dict[str, str] = {}
+                holder_map: dict[str, str] = {}
                 map_cols = st.columns(min(len(detected_sections), 3))
                 for idx, section in enumerate(detected_sections):
                     col = map_cols[idx % len(map_cols)]
                     with col:
-                        # デフォルト推論
                         from src.sbi_importer import extract_account_name
 
                         default_target = extract_account_name(section)
-                        # 既存アカウントと近似するものがあれば選択肢の初期値にする
-                        matched_initial = (
-                            default_target
-                            if default_target in existing_accounts
-                            else existing_accounts[0]
+                        options_list = sorted(
+                            {
+                                *existing_accounts,
+                                default_target,
+                                "NISA預り（つみたて投資枠）",
+                                "NISA預り（成長投資枠）",
+                                "NISA預り（旧つみたてNISA預り）",
+                                "一般預り",
+                                "特定預り",
+                            }
                         )
-                        options_list = sorted({*existing_accounts, default_target})
+                        selected_holder = st.selectbox(
+                            f"『{section}』の法人/個人",
+                            options=["個人", "法人"],
+                            index=0 if global_holder == "個人" else 1,
+                            key=f"sec_holder_{idx}",
+                        )
                         selected_acc = st.selectbox(
-                            f"『{section}』の格納先",
+                            f"『{section}』の格納口座",
                             options=options_list,
                             index=options_list.index(
                                 default_target
-                                if default_target in existing_accounts
-                                else matched_initial
+                                if default_target in options_list
+                                else options_list[0]
                             ),
                             key=f"acc_map_{idx}",
+                            help="CSVのセクションから自動入力されています。必要に応じて変更可能です。",
                         )
                         account_map[default_target] = selected_acc
+                        holder_map[default_target] = selected_holder
 
-                # 名寄せ解決
+                # 名寄せ解決（所有者区分と格納口座を渡す）
                 candidates = resolve_candidates(
                     records=sbi_records,
                     existing_items=portfolio_items,
                     custom_aliases=custom_aliases,
                     account_override_map=account_map,
+                    default_holder=global_holder,
+                    holder_override_map=holder_map,
                 )
 
                 st.markdown("##### 2. インポート候補プレビュー & コード検証")
@@ -695,6 +759,7 @@ with tab_master:
                                     ImportCandidate(
                                         source_record=c.source_record,
                                         target_account=c.target_account,
+                                        holder=c.holder,
                                         resolved_code=manual_code,
                                         resolved_isin=manual_isin,
                                         is_resolved=True,
@@ -709,6 +774,7 @@ with tab_master:
                 preview_rows = [
                     {
                         "ステータス": "✅ 照合完了" if rc.is_resolved else "❌ 未解決",
+                        "法人/個人": rc.holder,
                         "格納口座": rc.target_account,
                         "ファンド名": rc.source_record.fund_name,
                         "協会コード": rc.resolved_code or "---",

@@ -26,9 +26,12 @@ def test_parse_portfolio_csv_content_success() -> None:
 
     # Assert
     assert len(items) == 3
-    assert items[0].account == "法人"
+    assert items[0].holder == "法人"
+    assert items[0].account == "一般預り"
     assert items[0].code == "03311181"
     assert items[0].cost_basis == 15000
+    assert items[1].holder == "個人"
+    assert items[1].account == "iDeCo"
     assert items[1].cost_basis == 0
     assert items[2].cost_basis == 0
 
@@ -54,7 +57,8 @@ def test_parse_portfolio_csv_content_empty_row_dict() -> None:
         items = parse_portfolio_csv_content("dummy_content")
 
         assert len(items) == 1
-        assert items[0].account == "法人"
+        assert items[0].holder == "法人"
+        assert items[0].account == "一般預り"
 
 
 def test_parse_portfolio_csv_content_empty_error() -> None:
@@ -138,7 +142,8 @@ def test_save_and_load_portfolio_csv_roundtrip(tmp_path: Path) -> None:
     target_file = tmp_path / "saved.csv"
     items = [
         PortfolioItem(
-            account="法人",
+            holder="法人",
+            account="一般預り",
             code="0331418A",
             isin="JP90C000H1T1",
             name="全世界株式",
@@ -146,6 +151,7 @@ def test_save_and_load_portfolio_csv_roundtrip(tmp_path: Path) -> None:
             cost_basis=20000,
         ),
         PortfolioItem(
+            holder="個人",
             account="DC",
             code="03311187",
             isin="JP90C000GKC6",
@@ -160,23 +166,43 @@ def test_save_and_load_portfolio_csv_roundtrip(tmp_path: Path) -> None:
 
     loaded = load_portfolio_csv(target_file)
     assert len(loaded) == 2
+    assert loaded[0].holder == "法人"
+    assert loaded[0].account == "一般預り"
     assert loaded[0].code == "0331418A"
     assert loaded[0].isin == "JP90C000H1T1"
     assert loaded[0].units == 1000.5
     assert loaded[0].cost_basis == 20000
+    assert loaded[1].holder == "個人"
+    assert loaded[1].account == "DC"
     assert loaded[1].cost_basis == 0
 
 
 def test_parse_portfolio_csv_japanese_aliases() -> None:
-    """日本語ヘッダ（account, 協会コード, ISINコード, units, cost_basis等）の解析を検証する。"""
-    csv_data = "口座,協会コード,ISINコード,口数,取得簿価\n法人,0331418A,JP90C000H1T1,1234.5,5678\n"
+    """日本語ヘッダ（法人/個人, 口座, 協会コード, ISINコード, units, cost_basis等）の解析を検証する。"""
+    csv_data = "法人/個人,口座,協会コード,ISINコード,口数,取得簿価\n法人,一般預り,0331418A,JP90C000H1T1,1234.5,5678\n"
     items = parse_portfolio_csv_content(csv_data)
     assert len(items) == 1
-    assert items[0].account == "法人"
+    assert items[0].holder == "法人"
+    assert items[0].account == "一般預り"
     assert items[0].code == "0331418A"
     assert items[0].isin == "JP90C000H1T1"
     assert items[0].units == 1234.5
     assert items[0].cost_basis == 5678
+
+
+def test_parse_portfolio_csv_with_explicit_holder() -> None:
+    """holder列が明示されたCSVから各銘柄の所有者区分が正確に解析されることを検証する。"""
+    csv_data = (
+        "holder,account,code,isin,units,cost_basis\n"
+        "法人,一般預り,0331418A,JP90C000H1T1,500.0,10000\n"
+        "個人,NISA預り（成長投資枠）,03311187,JP90C000GKC6,300.0,5000\n"
+    )
+    items = parse_portfolio_csv_content(csv_data)
+    assert len(items) == 2
+    assert items[0].holder == "法人"
+    assert items[0].account == "一般預り"
+    assert items[1].holder == "個人"
+    assert items[1].account == "NISA預り（成長投資枠）"
 
 
 def test_save_portfolio_csv_cleanup_on_error(tmp_path: Path) -> None:

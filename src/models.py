@@ -16,8 +16,14 @@ class PortfolioItem(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    holder: str = Field(
+        default="個人",
+        description="所有者区分（法人 / 個人。手入力指定）",
+    )
     account: str = Field(
-        ..., min_length=1, description="口座種別（法人, NISA, 特定, iDeCo, DCなど）"
+        ...,
+        min_length=1,
+        description="格納口座種別（NISA預り（成長投資枠）, 一般預り, 特定預り など）",
     )
     code: str = Field(..., description="投信協会の8桁ファンドコード（半角英大文字・数字）")
     isin: str = Field(default="", description="国際証券識別番号（12桁ISINコード）")
@@ -44,6 +50,12 @@ class PortfolioItem(BaseModel):
             msg = f"ISINコードは12桁の半角英数字である必要があります: {v}"
             raise ValueError(msg)
         return cleaned
+
+    @field_validator("holder")
+    @classmethod
+    def validate_holder(cls, v: str) -> str:
+        cleaned = v.strip()
+        return cleaned if cleaned else "個人"
 
 
 class FundInfo(BaseModel):

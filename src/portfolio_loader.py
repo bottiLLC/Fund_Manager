@@ -60,6 +60,7 @@ PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
 }
 
 DEFAULT_PORTFOLIO_HEADER: Final[tuple[str, ...]] = (
+    "holder",
     "account",
     "code",
     "isin",
@@ -68,10 +69,18 @@ DEFAULT_PORTFOLIO_HEADER: Final[tuple[str, ...]] = (
 )
 
 COLUMN_ALIASES: Final[dict[str, str]] = {
+    "holder": "holder",
+    "法人/個人": "holder",
+    "法人・個人": "holder",
+    "区分": "holder",
+    "名義": "holder",
+    "所有者": "holder",
+    "保有者": "holder",
     "account": "account",
     "口座": "account",
     "口座名": "account",
     "口座種別": "account",
+    "格納口座": "account",
     "code": "code",
     "協会コード": "code",
     "ファンドコード": "code",
@@ -92,12 +101,12 @@ COLUMN_ALIASES: Final[dict[str, str]] = {
 }
 
 DEFAULT_SAMPLE_PORTFOLIO: Final[str] = (
-    "account,code,isin,units,cost_basis\n"
-    "法人,0331418A,JP90C000H1T1,5000000.0,7500000\n"
-    "NISA,03311187,JP90C000GKC6,3000000.0,6000000\n"
-    "特定,03319172,JP90C000ENC5,2000000.0,4500000\n"
-    "iDeCo,0331418A,JP90C000H1T1,1500000.0,0\n"
-    "DC,03311187,JP90C000GKC6,1000000.0,\n"
+    "holder,account,code,isin,units,cost_basis\n"
+    "法人,一般預り,0331418A,JP90C000H1T1,5000000.0,7500000\n"
+    "個人,NISA預り（成長投資枠）,03311187,JP90C000GKC6,3000000.0,6000000\n"
+    "個人,特定預り,03319172,JP90C000ENC5,2000000.0,4500000\n"
+    "個人,iDeCo,0331418A,JP90C000H1T1,1500000.0,0\n"
+    "個人,DC,03311187,JP90C000GKC6,1000000.0,\n"
 )
 
 
@@ -151,6 +160,7 @@ def parse_portfolio_csv_content(
             if norm_k:
                 row[norm_k] = (v or "").strip()
 
+        holder = row.get("holder", "")
         account = row.get("account", "")
         code = row.get("code", "")
         isin = row.get("isin", "")
@@ -160,6 +170,14 @@ def parse_portfolio_csv_content(
 
         if not account and not code and not name and not isin:
             continue
+
+        # 旧フォーマットCSV（holder列なし）の後方互換フォールバック
+        if not holder:
+            if account == "法人":
+                holder = "法人"
+                account = "一般預り"
+            else:
+                holder = "個人"
 
         # 既知主要銘柄からの自動補完
         preset = PRESET_FUNDS.get(code.upper())
@@ -186,6 +204,7 @@ def parse_portfolio_csv_content(
                 raise ValueError(msg) from e
 
         item = PortfolioItem(
+            holder=holder,
             account=account,
             code=code,
             isin=isin,
@@ -235,7 +254,7 @@ def save_portfolio_csv(file_path: Path, items: list[PortfolioItem]) -> None:
     resolved_path = file_path.resolve()
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["account", "code", "isin", "units", "cost_basis"]
+    header = ["holder", "account", "code", "isin", "units", "cost_basis"]
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(header)
@@ -243,6 +262,7 @@ def save_portfolio_csv(file_path: Path, items: list[PortfolioItem]) -> None:
     for item in items:
         writer.writerow(
             [
+                item.holder,
                 item.account,
                 item.code,
                 item.isin,

@@ -29,11 +29,32 @@ def test_portfolio_item_valid(valid_code: str) -> None:
     )
 
     # Assert
+    assert item.holder == "個人"
     assert item.account == "NISA"
     assert item.code == valid_code
     assert item.name == "eMAXIS Slim 全世界株式"
     assert item.units == 10000.5
     assert item.cost_basis == 20000
+
+
+def test_portfolio_item_holder_custom() -> None:
+    """holder の明示指定および空白正規化の動作を検証する。"""
+    item_corp = PortfolioItem(
+        holder="法人",
+        account="一般預り",
+        code="0331418A",
+        units=100.0,
+    )
+    assert item_corp.holder == "法人"
+
+    # 空文字渡しの場合はデフォルト "個人" にフォールバック
+    item_empty = PortfolioItem(
+        holder="   ",
+        account="一般預り",
+        code="0331418A",
+        units=100.0,
+    )
+    assert item_empty.holder == "個人"
 
 
 @pytest.mark.parametrize(
