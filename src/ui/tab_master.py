@@ -10,6 +10,7 @@ import streamlit as st
 from backup_manager import run_backup
 from src.models import HOLDER_OPTIONS, PortfolioItem
 from src.portfolio_loader import (
+    CANONICAL_PRESET_FUNDS,
     PRESET_FUNDS,
     parse_portfolio_csv_content,
     save_portfolio_csv,
@@ -38,7 +39,9 @@ def render_master_tab(
     # プリセット選択補助
     with st.expander("💡 主要9銘柄プリセットから入力コードを選択", expanded=False):
         preset_names = [
-            f"{code} | {info['name']}" for code, info in PRESET_FUNDS.items() if len(code) == 8
+            f"{code} | {info['name']}"
+            for code, info in CANONICAL_PRESET_FUNDS.items()
+            if len(code) == 8
         ]
         selected_preset_str = st.selectbox(
             "主要銘柄リスト",
@@ -49,7 +52,7 @@ def render_master_tab(
         selected_isin = ""
         if selected_preset_str and selected_preset_str != "-- 選択してください --":
             selected_code = selected_preset_str.split(" | ")[0]
-            selected_isin = PRESET_FUNDS[selected_code]["isin"]
+            selected_isin = CANONICAL_PRESET_FUNDS[selected_code]["isin"]
             st.info(f"選択中: 協会コード `{selected_code}` / ISINコード `{selected_isin}`")
 
     # 1. 新規追加フォーム (Formカプセル化)

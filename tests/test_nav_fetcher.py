@@ -356,3 +356,28 @@ def test_fetch_latest_nav_and_names_preset_isin_lookup(tmp_path: Path) -> None:
     assert as_of == "2026-10-20"
     assert navs["0331418A"] == 37859.0
     assert names["0331418A"] == "テストファンド"
+
+
+def test_fetch_latest_nav_and_names_legacy_code_cache_and_partial_fallback(tmp_path: Path) -> None:
+    """旧コードの正規コードキャッシュ解決および部分フォールバック判定を検証する。"""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. 正規コード名のキャッシュCSVを事前配置
+    csv_bytes = "年月日,基準価額\n2026-10-20,37859\n".encode("cp932")
+    (cache_dir / "0331418A_JP90C000H1T1.csv").write_bytes(csv_bytes)
+
+    # ネットワーク不通下で旧コード 03311181 と キャッシュ不在コード UNKNOWN をフェッチ
+    with patch("requests.get", side_effect=requests.RequestException("Offline")):
+        result = fetch_latest_nav_and_names(
+            targets={"03311181": "JP90C000H1T1", "UNKNOWN": ""},
+            cache_dir=cache_dir,
+        )
+
+    # 03311181 は 0331418A のキャッシュから復元され、UNKNOWN のみがフォールバックとなる
+    assert "(Cached)" in result.as_of_date
+    assert "(Fallback)" not in result.as_of_date
+    assert result.nav_map["03311181"] == 37859.0
+    assert result.nav_map["UNKNOWN"] == 10000.0
+    assert result.fallback_funds == ["UNKNOWN"]
+    assert result.fetched_at is not None

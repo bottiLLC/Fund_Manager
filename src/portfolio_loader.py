@@ -10,7 +10,7 @@ from typing import Final
 
 from src.models import PortfolioItem
 
-PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
+CANONICAL_PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
     "03311187": {"isin": "JP90C000GKC6", "name": "eMAXIS Slim 米国株式(S&P500)"},
     "0331124A": {
         "isin": "JP90C000R9Z9",
@@ -44,6 +44,16 @@ PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
         "isin": "JP90C000J569",
         "name": "SBI･V･S&P500インデックス・ファンド",
     },
+}
+
+LEGACY_CODE_TO_REAL_CODE: Final[dict[str, str]] = {
+    "03311181": "0331418A",
+    "03314187": "03311187",
+    "03312184": "03319172",
+}
+
+PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
+    **CANONICAL_PRESET_FUNDS,
     # 旧サンプルコードの後方互換マッピング
     "03311181": {
         "isin": "JP90C000H1T1",
@@ -241,7 +251,24 @@ def load_portfolio_csv(
         resolved_path.write_text(DEFAULT_SAMPLE_PORTFOLIO, encoding="utf-8")
 
     content = resolved_path.read_text(encoding="utf-8")
-    return parse_portfolio_csv_content(content, allow_empty=allow_empty)
+    items = parse_portfolio_csv_content(content, allow_empty=allow_empty)
+
+    # 旧コードが検出された場合は正規コードへ自動マイグレーションして再保存
+    migrated = False
+    migrated_items: list[PortfolioItem] = []
+    for item in items:
+        if item.code in LEGACY_CODE_TO_REAL_CODE:
+            new_code = LEGACY_CODE_TO_REAL_CODE[item.code]
+            migrated_items.append(item.model_copy(update={"code": new_code}))
+            migrated = True
+        else:
+            migrated_items.append(item)
+
+    if migrated:
+        save_portfolio_csv(resolved_path, migrated_items)
+        return migrated_items
+
+    return items
 
 
 def save_portfolio_csv(file_path: Path, items: list[PortfolioItem]) -> None:

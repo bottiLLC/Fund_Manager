@@ -125,10 +125,13 @@ def main() -> int:
     targets = {item.code: item.isin for item in portfolio_items}
     cache_dir = _PROJECT_ROOT / "data" / "cache"
 
-    as_of_date, nav_map, name_map = fetch_latest_nav_and_names(
+    fetch_result = fetch_latest_nav_and_names(
         targets=targets,
         cache_dir=cache_dir,
     )
+    as_of_date = fetch_result[0]
+    nav_map = fetch_result[1]
+    name_map = fetch_result[2]
 
     hydrated_items = [
         item.model_copy(
@@ -146,6 +149,8 @@ def main() -> int:
         items=hydrated_items,
         nav_map=nav_map,
         as_of_date=as_of_date,
+        fetched_at=fetch_result.fetched_at,
+        fallback_funds=fetch_result.fallback_funds,
     )
 
     output_text = format_cli_report(report)

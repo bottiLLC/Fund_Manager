@@ -26,12 +26,18 @@ def render_app_sidebar(project_root: Path) -> None:
         )
         if force_refresh:
             st.cache_data.clear()
-            st.session_state["cache_cleared_msg"] = (
-                "キャッシュをクリアし、最新データを再取得しました。"
-            )
+            st.session_state["refresh_pending"] = True
             st.rerun()
 
-        if "cache_cleared_msg" in st.session_state:
+        if "refresh_feedback" in st.session_state:
+            fb_status, fb_msg = st.session_state.pop("refresh_feedback")
+            if fb_status == "success":
+                st.success(fb_msg)
+            elif fb_status == "warning":
+                st.warning(fb_msg)
+            else:
+                st.error(fb_msg)
+        elif "cache_cleared_msg" in st.session_state:
             st.success(str(st.session_state.pop("cache_cleared_msg")))
 
         uploaded_nav_csv = st.file_uploader(

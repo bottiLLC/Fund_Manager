@@ -919,3 +919,89 @@ def test_render_sbi_import_section_flow(tmp_path: Path) -> None:
         mock_clear.assert_called()
         mock_rerun.assert_called()
         assert "sbi_import_result" in session_mock
+
+
+def test_render_dashboard_tab_partial_fallback_and_fetched_at() -> None:
+    """部分フォールバック警告と基準価額取得日時キャプションの描画を検証する。"""
+    item = PortfolioItem(
+        holder="個人",
+        account="特定預り",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="テスト株",
+        units=5000.0,
+        cost_basis=10000,
+    )
+    holding = HoldingEvaluation(
+        item=item,
+        nav=10000.0,
+        valuation=50000,
+        profit_loss=40000,
+        profit_loss_rate=4.0,
+        effective_units=5000.0,
+    )
+    report = PortfolioReport(
+        as_of_date="2026-10-22",
+        fetched_at="2026-10-23 11:35:00",
+        fallback_funds=["03311187"],
+        holdings=[holding],
+        tank_summaries=[],
+        total_valuation=50000,
+        total_profit_loss=40000,
+    )
+
+    with (
+        patch("streamlit.warning") as mock_warning,
+        patch("streamlit.caption") as mock_caption,
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric"),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.altair_chart"),
+        patch("streamlit.dataframe"),
+    ):
+        render_dashboard_tab(report)
+        mock_warning.assert_called_once()
+        assert "一部銘柄フォールバック中" in mock_warning.call_args[0][0]
+        assert "03311187" in mock_warning.call_args[0][0]
+        caption_calls = [c[0][0] for c in mock_caption.call_args_list]
+        assert any("基準価額取得日時" in c and "2026-10-23 11:35:00" in c for c in caption_calls)
+
+
+def test_render_app_sidebar_refresh_feedback_variants(tmp_path: Path) -> None:
+    """サイドバーの refresh_feedback で warning および error が正しく表示されることを検証する。"""
+    # Warning パターン
+    session_warning: dict[str, object] = {"refresh_feedback": ("warning", "一部銘柄フォールバック")}
+    with (
+        patch("streamlit.sidebar"),
+        patch("streamlit.header"),
+        patch("streamlit.button", return_value=False),
+        patch("streamlit.session_state", session_warning),
+        patch("streamlit.file_uploader", return_value=None),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.form"),
+        patch("src.ui.sidebar.get_backup_dir", return_value=Path("C:/dir")),
+        patch("streamlit.caption"),
+        patch("streamlit.warning") as mock_warn,
+    ):
+        render_app_sidebar(project_root=tmp_path)
+        mock_warn.assert_called_once_with("一部銘柄フォールバック")
+
+    # Error パターン
+    session_error: dict[str, object] = {"refresh_feedback": ("error", "外部通信失敗")}
+    with (
+        patch("streamlit.sidebar"),
+        patch("streamlit.header"),
+        patch("streamlit.button", return_value=False),
+        patch("streamlit.session_state", session_error),
+        patch("streamlit.file_uploader", return_value=None),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.form"),
+        patch("src.ui.sidebar.get_backup_dir", return_value=Path("C:/dir")),
+        patch("streamlit.caption"),
+        patch("streamlit.error") as mock_err,
+    ):
+        render_app_sidebar(project_root=tmp_path)
+        mock_err.assert_called_once_with("外部通信失敗")

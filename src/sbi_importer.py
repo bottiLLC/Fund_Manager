@@ -19,7 +19,10 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models import PortfolioItem
-from src.portfolio_loader import PRESET_FUNDS
+from src.portfolio_loader import CANONICAL_PRESET_FUNDS
+
+# 後方互換用エイリアス（テスト・外部参照用）
+PRESET_FUNDS: Final[dict[str, dict[str, str]]] = CANONICAL_PRESET_FUNDS
 
 # 口座セクション抽出正規表現（例: 投資信託（金額/NISA口座（成長投資枠）））
 ACCOUNT_SECTION_PATTERN: Final[re.Pattern[str]] = re.compile(r"投資信託[（\(][^/]+/(.+)[）\)]")
@@ -352,9 +355,9 @@ def resolve_candidates(
         if item.name:
             existing_name_map[normalize_string_key(item.name)] = (item.code, item.isin)
 
-    # PRESET_FUNDS からの逆引き辞書構築
+    # CANONICAL_PRESET_FUNDS からの逆引き辞書構築
     preset_name_map: dict[str, tuple[str, str]] = {}
-    for code, meta in PRESET_FUNDS.items():
+    for code, meta in CANONICAL_PRESET_FUNDS.items():
         name = meta.get("name", "")
         isin = meta.get("isin", "")
         if name:

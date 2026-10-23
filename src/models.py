@@ -110,6 +110,12 @@ class PortfolioReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     as_of_date: str = Field(..., description="基準価額データの取得日付 (YYYY-MM-DD)")
+    fetched_at: str | None = Field(
+        default=None, description="基準価額データの取得実行日時 (YYYY/MM/DD HH:MM:SS)"
+    )
+    fallback_funds: list[str] = Field(
+        default_factory=list, description="フォールバック値が適用された銘柄コード一覧"
+    )
     total_valuation: int = Field(..., ge=0, description="総資産評価額（円）")
     total_profit_loss: int | None = Field(default=None, description="総含み損益（円）")
     tank_summaries: list[TankSummary] = Field(default_factory=list)

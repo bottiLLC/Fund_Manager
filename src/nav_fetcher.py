@@ -11,11 +11,67 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Self
 
 import requests
 
-from src.portfolio_loader import PRESET_FUNDS
+from src.portfolio_loader import (
+    CANONICAL_PRESET_FUNDS,
+    LEGACY_CODE_TO_REAL_CODE,
+    PRESET_FUNDS,
+)
+
+ISIN_TO_CANONICAL_CODE: Final[dict[str, str]] = {
+    meta["isin"]: code for code, meta in CANONICAL_PRESET_FUNDS.items() if "isin" in meta
+}
+
+
+class NavFetchResult(tuple[str, dict[str, float], dict[str, str]]):
+    """基準価額および銘柄名フェッチ結果コンテナ。
+
+    従来の (as_of_date, nav_map, name_map) 3要素タプルと多重代入互換であり、
+    かつ fetched_at および fallback_funds 属性を保持する。
+    """
+
+    as_of_date: str
+    nav_map: dict[str, float]
+    name_map: dict[str, str]
+    fetched_at: str
+    fallback_funds: list[str]
+
+    def __new__(
+        cls,
+        as_of_date: str,
+        nav_map: dict[str, float],
+        name_map: dict[str, str],
+        fetched_at: str,
+        fallback_funds: list[str] | None = None,
+    ) -> Self:
+        instance = super().__new__(cls, (as_of_date, nav_map, name_map))
+        instance.as_of_date = as_of_date
+        instance.nav_map = nav_map
+        instance.name_map = name_map
+        instance.fetched_at = fetched_at
+        instance.fallback_funds = fallback_funds or []
+        return instance
+
+    def __reduce__(
+        self,
+    ) -> tuple[
+        type[Self],
+        tuple[str, dict[str, float], dict[str, str], str, list[str]],
+    ]:
+        return (
+            self.__class__,
+            (
+                self.as_of_date,
+                self.nav_map,
+                self.name_map,
+                self.fetched_at,
+                self.fallback_funds,
+            ),
+        )
+
 
 DIRECT_CSV_URL_TEMPLATE: Final[str] = (
     "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd={isin}&associFundCd={code}"
@@ -232,7 +288,11 @@ def _fetch_single_fund_live(
             "Chrome/124.0.0.0 Safari/537.36"
         )
     }
-    csv_url = DIRECT_CSV_URL_TEMPLATE.format(isin=isin, code=code)
+    canonical_code = LEGACY_CODE_TO_REAL_CODE.get(code.upper(), code.upper())
+    if isin in ISIN_TO_CANONICAL_CODE:
+        canonical_code = ISIN_TO_CANONICAL_CODE[isin]
+
+    csv_url = DIRECT_CSV_URL_TEMPLATE.format(isin=isin, code=canonical_code)
     r_csv = requests.get(csv_url, headers=headers, timeout=timeout)
     r_csv.raise_for_status()
 
@@ -241,7 +301,7 @@ def _fetch_single_fund_live(
     # 銘柄名のHTML取得
     name = ""
     try:
-        detail_url = DIRECT_DETAIL_URL_TEMPLATE.format(isin=isin, code=code)
+        detail_url = DIRECT_DETAIL_URL_TEMPLATE.format(isin=isin, code=canonical_code)
         r_html = requests.get(detail_url, headers=headers, timeout=timeout)
         if r_html.status_code == 200:
             titles = re.findall(r"<title>(.*?)</title>", r_html.content.decode("utf-8", "replace"))
@@ -251,7 +311,7 @@ def _fetch_single_fund_live(
         pass
 
     if not name:
-        preset = PRESET_FUNDS.get(code)
+        preset = CANONICAL_PRESET_FUNDS.get(canonical_code) or PRESET_FUNDS.get(code)
         name = preset["name"] if preset else f"ファンド {code}"
 
     return as_of_date, nav, name, r_csv.content
@@ -261,7 +321,7 @@ def fetch_latest_nav_and_names(
     targets: dict[str, str],
     cache_dir: Path | None = None,
     timeout: float = 8.0,
-) -> tuple[str, dict[str, float], dict[str, str]]:
+) -> NavFetchResult:
     """直結APIおよびキャッシュを用いて、最新基準日、基準価額マップ、銘柄名マップを取得する。
 
     Args:
@@ -270,7 +330,8 @@ def fetch_latest_nav_and_names(
         timeout: 各銘柄のHTTPリクエストタイムアウト秒数。
 
     Returns:
-        (最新基準日, code -> nav マップ, code -> name マップ) の3つ組。
+        NavFetchResult (as_of_date, nav_map, name_map, fetched_at, fallback_funds)。
+        従来の3要素タプルとしても多重代入可能。
     """
     effective_cache_dir = cache_dir or Path("./data/cache")
     effective_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -283,15 +344,17 @@ def fetch_latest_nav_and_names(
         except OSError, json.JSONDecodeError:
             cached_meta = {}
 
+    fetched_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
     nav_map: dict[str, float] = {}
     name_map: dict[str, str] = {}
     dates: list[str] = []
-    is_fallback = False
+    fallback_funds: list[str] = []
     is_cached = False
 
     def fetch_worker(code: str, isin: str) -> tuple[str, str, float, str, bytes | None]:
+        canonical_code = LEGACY_CODE_TO_REAL_CODE.get(code.upper(), code.upper())
         if not isin:
-            preset = PRESET_FUNDS.get(code)
+            preset = CANONICAL_PRESET_FUNDS.get(canonical_code) or PRESET_FUNDS.get(code)
             if preset:
                 isin = preset["isin"]
 
@@ -304,20 +367,26 @@ def fetch_latest_nav_and_names(
 
         # ローカルCSVキャッシュからの復元試行
         single_cache = effective_cache_dir / f"{code}_{isin}.csv"
+        if not single_cache.exists() and canonical_code != code:
+            single_cache = effective_cache_dir / f"{canonical_code}_{isin}.csv"
+
         if single_cache.exists():
             try:
                 b = single_cache.read_bytes()
                 as_of, nav = parse_single_fund_csv_content(b)
-                cached_name = cached_meta.get(code, {}).get("name") or PRESET_FUNDS.get(
-                    code, {}
-                ).get("name", f"ファンド {code}")
+                cached_name = (
+                    cached_meta.get(code, {}).get("name")
+                    or cached_meta.get(canonical_code, {}).get("name")
+                    or CANONICAL_PRESET_FUNDS.get(canonical_code, {}).get("name")
+                    or PRESET_FUNDS.get(code, {}).get("name", f"ファンド {code}")
+                )
                 return code, f"{as_of} (Cached)", nav, cached_name, None
             except Exception:
                 pass
 
         # フォールバック辞書の適用
         today_str = datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
-        fallback_item = FALLBACK_FUNDS.get(code)
+        fallback_item = FALLBACK_FUNDS.get(code) or FALLBACK_FUNDS.get(canonical_code)
         if fallback_item:
             return (
                 code,
@@ -338,7 +407,7 @@ def fetch_latest_nav_and_names(
             clean_date = as_of.replace(" (Cached)", "").replace(" (Fallback)", "")
             dates.append(clean_date)
             if "(Fallback)" in as_of:
-                is_fallback = True
+                fallback_funds.append(code)
             elif "(Cached)" in as_of:
                 is_cached = True
 
@@ -354,6 +423,7 @@ def fetch_latest_nav_and_names(
                     "name": name,
                     "nav": nav,
                     "as_of_date": as_of,
+                    "fetched_at": fetched_at,
                 }
 
     # メタ情報キャッシュの保存
@@ -364,12 +434,18 @@ def fetch_latest_nav_and_names(
             )
 
     overall_date = max(dates) if dates else datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
-    if is_fallback:
+    if len(fallback_funds) == len(targets) and len(targets) > 0:
         overall_date = f"{overall_date} (Fallback)"
     elif is_cached:
         overall_date = f"{overall_date} (Cached)"
 
-    return overall_date, nav_map, name_map
+    return NavFetchResult(
+        as_of_date=overall_date,
+        nav_map=nav_map,
+        name_map=name_map,
+        fetched_at=fetched_at,
+        fallback_funds=fallback_funds,
+    )
 
 
 def fetch_latest_nav(

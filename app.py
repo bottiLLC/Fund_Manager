@@ -13,7 +13,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 from src.calculator import evaluate_portfolio
-from src.nav_fetcher import fetch_latest_nav_and_names
+from src.nav_fetcher import NavFetchResult, fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv
 from src.ui.header import render_app_header
 from src.ui.sbi_wizard import render_sbi_import_section
@@ -38,7 +38,7 @@ st.set_page_config(
 def cached_fetch_nav_and_names(
     targets_tuple: tuple[tuple[str, str], ...],
     cache_dir_str: str,
-) -> tuple[str, dict[str, float], dict[str, str]]:
+) -> NavFetchResult:
     """基準価額および銘柄名の取得結果を1時間キャッシュする。"""
     return fetch_latest_nav_and_names(
         targets=dict(targets_tuple),
@@ -71,7 +71,31 @@ target_pairs = tuple(sorted({(item.code, item.isin) for item in portfolio_items}
 cache_dir = _PROJECT_ROOT / "data" / "cache"
 
 with st.spinner("基準価額データを取得中..."):
-    as_of_date, nav_map, name_map = cached_fetch_nav_and_names(target_pairs, str(cache_dir))
+    fetch_result = cached_fetch_nav_and_names(target_pairs, str(cache_dir))
+    as_of_date = fetch_result[0]
+    nav_map = fetch_result[1]
+    name_map = fetch_result[2]
+    fetched_at = getattr(fetch_result, "fetched_at", None)
+    fallback_funds = getattr(fetch_result, "fallback_funds", [])
+
+    # サイドバーの再取得要求に対するフィードバック生成
+    if st.session_state.pop("refresh_pending", False):
+        if "(Fallback)" in as_of_date:
+            st.session_state["refresh_feedback"] = (
+                "error",
+                "外部通信に失敗したため、内蔵フォールバック値を使用しました。",
+            )
+        elif fallback_funds:
+            st.session_state["refresh_feedback"] = (
+                "warning",
+                f"一部銘柄（{len(fallback_funds)}件）の取得に失敗したためフォールバック値を使用しました。",
+            )
+        else:
+            st.session_state["refresh_feedback"] = (
+                "success",
+                "キャッシュをクリアし、最新データを再取得しました。",
+            )
+        st.rerun()
 
 # 銘柄名の補完
 hydrated_items = [
@@ -90,6 +114,8 @@ report = evaluate_portfolio(
     items=hydrated_items,
     nav_map=nav_map,
     as_of_date=as_of_date,
+    fetched_at=fetched_at,
+    fallback_funds=fallback_funds,
 )
 
 # ---------------------------------------------------------

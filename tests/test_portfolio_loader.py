@@ -269,3 +269,26 @@ def test_delete_portfolio_items_by_indices() -> None:
     # 3. 範囲外インデックス（無視される）
     remaining_out_of_range = delete_portfolio_items_by_indices(items, [99])
     assert len(remaining_out_of_range) == 3
+
+
+def test_load_portfolio_csv_migrates_legacy_codes(tmp_path: Path) -> None:
+    """旧コードが含まれるCSVを読み込んだ際、正規コードへ自動置換および再保存されることを検証する。"""
+    csv_file = tmp_path / "legacy_portfolio.csv"
+    csv_file.write_text(
+        "holder,account,code,isin,units,cost_basis\n"
+        "個人,NISA預り（成長投資枠）,03314187,JP90C000GKC6,100,1000\n"
+        "個人,特定預り,03311181,JP90C000H1T1,200,2000\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_portfolio_csv(csv_file)
+    assert len(loaded) == 2
+    assert loaded[0].code == "03311187"  # 03314187 -> 03311187
+    assert loaded[1].code == "0331418A"  # 03311181 -> 0331418A
+
+    # 再保存されたファイル内容の確認
+    saved_text = csv_file.read_text(encoding="utf-8")
+    assert "03311187" in saved_text
+    assert "0331418A" in saved_text
+    assert "03314187" not in saved_text
+    assert "03311181" not in saved_text

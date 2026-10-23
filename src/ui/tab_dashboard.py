@@ -30,9 +30,21 @@ def render_dashboard_tab(report: PortfolioReport) -> None:
             "内蔵の固定値データを表示しています。「再取得」を押しても外部通信が失敗する場合は値は変化しません。"
             "手動で最新データを反映する場合は、サイドバーの「最新基準価額CSVを手動登録」をご利用ください。"
         )
+    elif report.fallback_funds:
+        failed_str = ", ".join(report.fallback_funds)
+        st.warning(
+            f"⚠️ **一部銘柄フォールバック中**: 次の銘柄の最新データ取得に失敗したため、内蔵固定値を使用しています: "
+            f"`{failed_str}`"
+        )
     elif "(Cached)" in report.as_of_date:
         st.info(
             f"ℹ️ **ローカルキャッシュ使用中**: `./data/cache/` の基準価額を表示しています（基準日: {report.as_of_date}）。"
+        )
+
+    # 基準価額取得日時表示（総資産評価額の上部）
+    if report.fetched_at:
+        st.caption(
+            f"🕒 **基準価額取得日時**: {report.fetched_at} （データ基準日: {report.as_of_date}）"
         )
 
     # 1. KPI メトリクス表示

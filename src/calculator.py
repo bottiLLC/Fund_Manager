@@ -26,6 +26,8 @@ def evaluate_portfolio(
     items: list[PortfolioItem],
     nav_map: dict[str, float],
     as_of_date: str,
+    fetched_at: str | None = None,
+    fallback_funds: list[str] | None = None,
 ) -> PortfolioReport:
     """保有資産リストと基準価額マップから全体の評価レポートを算出する。
 
@@ -35,6 +37,8 @@ def evaluate_portfolio(
         items: 保有銘柄リスト。
         nav_map: ファンドコード -> 基準価額マップ。
         as_of_date: 基準価額の取得日付文字列。
+        fetched_at: 基準価額データの取得実行日時。
+        fallback_funds: フォールバック値が適用された銘柄コード一覧。
 
     Returns:
         評価レポート（PortfolioReport）。
@@ -117,6 +121,8 @@ def evaluate_portfolio(
 
     return PortfolioReport(
         as_of_date=as_of_date,
+        fetched_at=fetched_at,
+        fallback_funds=fallback_funds or [],
         total_valuation=total_valuation,
         total_profit_loss=total_profit_loss,
         tank_summaries=tank_summaries,
