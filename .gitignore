@@ -10,3 +10,4 @@ htmlcov/
 backups/
 data/cache/
 data/backup_config.json
+*.db

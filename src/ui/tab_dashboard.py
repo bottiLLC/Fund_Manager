@@ -7,17 +7,23 @@ import pandas as pd
 import streamlit as st
 
 from src.formatter import format_rate, format_yen
+from src.history_db import HistoryRepository
 from src.models import PortfolioReport
 
 
-def render_dashboard_tab(report: PortfolioReport) -> None:
+def render_dashboard_tab(
+    report: PortfolioReport,
+    history_repo: HistoryRepository | None = None,
+) -> None:
     """ポートフォリオ評価ダッシュボードタブを描画する。
 
-    KPIメトリクス、口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
+    KPIメトリクス、総資産推移積み上げ棒グラフ、口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
 
     Args:
         report: ポートフォリオ集計・評価レポート。
+        history_repo: ポートフォリオ履歴データベースリポジトリ。
     """
+
     if not report.holdings:
         st.info(
             "ℹ️ 現在、保有銘柄が登録されていません。「📝 保有資産マスター管理」タブから銘柄を追加、またはCSVを取り込んでください。"
@@ -77,7 +83,60 @@ def render_dashboard_tab(report: PortfolioReport) -> None:
 
     st.divider()
 
-    # 2. タンク別サマリー & アセットアロケーション可視化
+    # 2. 総資産の推移（全ファンド積み上げ式棒グラフ）
+    if history_repo is not None:
+        st.subheader("📈 総資産の推移（積み上げ棒グラフ）")
+        group_mode = st.radio(
+            "積み上げ区分",
+            options=["銘柄別", "格納口座別", "法人/個人別"],
+            index=0,
+            horizontal=True,
+            key="dashboard_stacked_group_mode",
+            help="棒グラフの積み上げ要素を切り替えます。",
+        )
+        col_map = {"銘柄別": "name", "格納口座別": "account", "法人/個人別": "holder"}
+        target_group_col = col_map[group_mode]
+
+        stacked_df = history_repo.get_stacked_asset_df(group_by=target_group_col)
+        if not stacked_df.empty:
+            bar_chart = (
+                alt.Chart(stacked_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "recorded_date:T",
+                        title="記録基準日",
+                        axis=alt.Axis(format="%Y-%m-%d", labelAngle=-45),
+                    ),
+                    y=alt.Y(
+                        "valuation:Q",
+                        title="総資産評価額 (円)",
+                        stack="zero",
+                        axis=alt.Axis(format="~s"),
+                    ),
+                    color=alt.Color(
+                        "group_key:N",
+                        title="内訳",
+                        legend=alt.Legend(orient="bottom", columns=3),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("recorded_date:T", title="記録日", format="%Y-%m-%d"),
+                        alt.Tooltip("group_key:N", title="区分"),
+                        alt.Tooltip("valuation:Q", title="評価額 (円)", format=",.0f"),
+                    ],
+                )
+                .properties(height=340)
+            )
+            st.altair_chart(bar_chart, use_container_width=True)
+        else:
+            st.info(
+                "ℹ️ 過去の履歴データがまだ記録されていません。スナップショットが記録されると時系列棒グラフが表示されます。"
+            )
+
+        st.divider()
+
+    # 3. タンク別サマリー & アセットアロケーション可視化
+
     st.subheader("📊 タンク別サマリー & アセットアロケーション")
 
     summary_data = [

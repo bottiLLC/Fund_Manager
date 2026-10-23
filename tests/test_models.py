@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.models import (
+    FundSnapshotRecord,
     HoldingEvaluation,
     PortfolioItem,
     PortfolioReport,
@@ -200,3 +201,53 @@ def test_holding_evaluation_and_report_creation() -> None:
     assert len(report.tank_summaries) == 1
     assert len(report.holdings) == 1
     assert report.holdings[0].valuation == 12000
+
+
+def test_fund_snapshot_record_valid() -> None:
+    """FundSnapshotRecord の正常系生成と identity_key プロパティの挙動を検証する。"""
+    # Arrange & Act
+    record = FundSnapshotRecord(
+        recorded_date="2026-10-23",
+        recorded_at="2026-10-23T12:00:00+00:00",
+        holder="個人",
+        account="NISA預り（成長投資枠）",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="eMAXIS Slim 全世界株式(オール・カントリー)",
+        units=500000.0,
+        cost_basis=1000000,
+        nav=25000.0,
+        valuation=1250000,
+        profit_loss=250000,
+    )
+
+    # Assert
+    assert record.recorded_date == "2026-10-23"
+    assert record.holder == "個人"
+    assert record.account == "NISA預り（成長投資枠）"
+    assert record.code == "0331418A"
+    assert record.isin == "JP90C000H1T1"
+    assert record.units == 500000.0
+    assert record.cost_basis == 1000000
+    assert record.nav == 25000.0
+    assert record.valuation == 1250000
+    assert record.profit_loss == 250000
+    assert record.identity_key == "個人__NISA預り（成長投資枠）__0331418A__JP90C000H1T1"
+
+
+def test_fund_snapshot_record_validation_error() -> None:
+    """不正な値（無効なコード桁数や負の口数）で ValidationError が送出されることを検証する。"""
+    with pytest.raises(ValidationError):
+        FundSnapshotRecord(
+            recorded_date="2026-10-23",
+            recorded_at="2026-10-23T12:00:00+00:00",
+            holder="個人",
+            account="特定預り",
+            code="INVALID",  # 7桁でバリデーション失敗
+            isin="JP90C000H1T1",
+            name="テスト投信",
+            units=100.0,
+            cost_basis=100,
+            nav=10000.0,
+            valuation=100,
+        )

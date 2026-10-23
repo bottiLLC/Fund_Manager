@@ -80,11 +80,11 @@ def test_app_file_uploader_rendered() -> None:
 
 
 def test_app_tabs_rendered() -> None:
-    """ダッシュボードおよびマスター管理タブが正しく描画されることを検証する。"""
+    """ダッシュボード、ファンド推移、およびマスター管理タブ（推移内サブタブ含む計6件）が正しく描画されることを検証する。"""
     at = AppTest.from_file(_APP_PATH, default_timeout=30)
     at.run()
     assert not at.exception
-    assert len(at.tabs) == 2
+    assert len(at.tabs) == 6
 
 
 def test_app_sbi_file_uploader_rendered() -> None:

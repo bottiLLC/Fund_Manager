@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from src.calculator import evaluate_portfolio, render_text_bar
+from src.calculator import (
+    create_snapshots_from_report,
+    evaluate_portfolio,
+    extract_iso_date,
+    render_text_bar,
+)
 from src.models import PortfolioItem
 
 
@@ -153,3 +158,53 @@ def test_evaluate_portfolio_with_zero_cost_and_zero_valuation() -> None:
     report_zero = evaluate_portfolio(items=[], nav_map={}, as_of_date="2026-10-21")
     assert report_zero.total_valuation == 0
     assert len(report_zero.tank_summaries) == 0
+
+
+def test_extract_iso_date() -> None:
+    """extract_iso_date の正規表現抽出とフォールバック動作を検証する。"""
+    assert extract_iso_date("2026-10-23") == "2026-10-23"
+    assert extract_iso_date("(Cached) 2026-10-22") == "2026-10-22"
+    assert extract_iso_date("データ基準日: 2026-05-15 (Fallback)") == "2026-05-15"
+
+    # 日付が含まれない場合は本日の日付（YYYY-MM-DD）が返る
+    fallback_date = extract_iso_date("無効な文字列")
+    assert len(fallback_date) == 10
+    assert fallback_date[4] == "-" and fallback_date[7] == "-"
+
+
+def test_create_snapshots_from_report() -> None:
+    """create_snapshots_from_report が PortfolioReport から正確にスナップショットを生成することを検証する。"""
+    # Arrange
+    item = PortfolioItem(
+        holder="法人",
+        account="一般預り",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="オルカン",
+        units=10000.0,
+        cost_basis=20000,
+    )
+    report = evaluate_portfolio(
+        items=[item],
+        nav_map={"0331418A": 25000.0},
+        as_of_date="(Cached) 2026-10-23",
+    )
+
+    # Act
+    snapshots = create_snapshots_from_report(report, timestamp="2026-10-23T12:00:00+00:00")
+
+    # Assert
+    assert len(snapshots) == 1
+    snap = snapshots[0]
+    assert snap.recorded_date == "2026-10-23"
+    assert snap.recorded_at == "2026-10-23T12:00:00+00:00"
+    assert snap.holder == "法人"
+    assert snap.account == "一般預り"
+    assert snap.code == "0331418A"
+    assert snap.isin == "JP90C000H1T1"
+    assert snap.name == "オルカン"
+    assert snap.units == 10000.0
+    assert snap.cost_basis == 20000
+    assert snap.nav == 25000.0
+    assert snap.valuation == 25000
+    assert snap.profit_loss == 5000

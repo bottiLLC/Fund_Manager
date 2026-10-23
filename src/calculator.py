@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from src.models import HoldingEvaluation, PortfolioItem, PortfolioReport, TankSummary
+import re
+from datetime import UTC, datetime
+from typing import Final
+
+from src.models import (
+    FundSnapshotRecord,
+    HoldingEvaluation,
+    PortfolioItem,
+    PortfolioReport,
+    TankSummary,
+)
+
+_DATE_REGEX: Final[re.Pattern[str]] = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def render_text_bar(ratio: float, width: int = 10) -> str:
@@ -128,3 +140,55 @@ def evaluate_portfolio(
         tank_summaries=tank_summaries,
         holdings=evaluations,
     )
+
+
+def extract_iso_date(date_str: str) -> str:
+    """キャッシュ注記やフォールバック表記を含む日付文字列から ISO 日付 (YYYY-MM-DD) を抽出する。
+
+    Args:
+        date_str: 抽出元の日付文字列（例: "(Cached) 2026-10-22", "2026-10-23"）。
+
+    Returns:
+        正規化された 'YYYY-MM-DD' 形式の文字列。マッチしない場合は本日の UTC 日付。
+    """
+    match = _DATE_REGEX.search(date_str)
+    if match:
+        return match.group(0)
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def create_snapshots_from_report(
+    report: PortfolioReport,
+    timestamp: str | None = None,
+) -> list[FundSnapshotRecord]:
+    """PortfolioReport から永続化用スナップショットレコード一覧を決定論的に生成する。
+
+    Args:
+        report: ポートフォリオ集計・評価レポート。
+        timestamp: 記録日時（ISO8601）。未指定時は現在日時。
+
+    Returns:
+        検証済み FundSnapshotRecord のリスト。
+    """
+    recorded_date = extract_iso_date(report.as_of_date)
+    recorded_at = timestamp or datetime.now(UTC).isoformat()
+
+    snapshots: list[FundSnapshotRecord] = []
+    for h in report.holdings:
+        snapshots.append(
+            FundSnapshotRecord(
+                recorded_date=recorded_date,
+                recorded_at=recorded_at,
+                holder=h.item.holder,
+                account=h.item.account,
+                code=h.item.code,
+                isin=h.item.isin,
+                name=h.item.name,
+                units=h.effective_units,
+                cost_basis=h.item.cost_basis,
+                nav=h.nav,
+                valuation=h.valuation,
+                profit_loss=h.profit_loss,
+            )
+        )
+    return snapshots

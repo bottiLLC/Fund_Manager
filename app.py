@@ -12,13 +12,15 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
-from src.calculator import evaluate_portfolio
+from src.calculator import create_snapshots_from_report, evaluate_portfolio
+from src.history_db import HistoryRepository
 from src.nav_fetcher import NavFetchResult, fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv
 from src.ui.header import render_app_header
 from src.ui.sbi_wizard import render_sbi_import_section
 from src.ui.sidebar import render_app_sidebar
 from src.ui.tab_dashboard import render_dashboard_tab
+from src.ui.tab_history import render_history_tab
 from src.ui.tab_master import render_master_tab
 
 # ---------------------------------------------------------
@@ -119,12 +121,27 @@ report = evaluate_portfolio(
 )
 
 # ---------------------------------------------------------
-# Zone 3: Main Workspace (Tabs segregation)
+# Zone 3: History Persistence & Snapshot Upsert
 # ---------------------------------------------------------
-tab_dashboard, tab_master = st.tabs(["📊 ポートフォリオ評価", "📝 保有資産マスター管理"])
+history_db_path = _PROJECT_ROOT / "data" / "fund_history.db"
+history_repo = HistoryRepository(history_db_path)
+
+if report.holdings:
+    snapshots = create_snapshots_from_report(report)
+    history_repo.upsert_snapshots(snapshots)
+
+# ---------------------------------------------------------
+# Zone 4: Main Workspace (Tabs segregation)
+# ---------------------------------------------------------
+tab_dashboard, tab_history, tab_master = st.tabs(
+    ["📊 ポートフォリオ評価", "📈 ファンド推移", "📝 保有資産マスター管理"]
+)
 
 with tab_dashboard:
-    render_dashboard_tab(report=report)
+    render_dashboard_tab(report=report, history_repo=history_repo)
+
+with tab_history:
+    render_history_tab(history_repo=history_repo)
 
 with tab_master:
     render_master_tab(

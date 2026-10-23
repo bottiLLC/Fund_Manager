@@ -120,3 +120,27 @@ class PortfolioReport(BaseModel):
     total_profit_loss: int | None = Field(default=None, description="総含み損益（円）")
     tank_summaries: list[TankSummary] = Field(default_factory=list)
     holdings: list[HoldingEvaluation] = Field(default_factory=list)
+
+
+class FundSnapshotRecord(BaseModel):
+    """日次ポートフォリオ履歴スナップショット1行を表す不変モデル。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    recorded_date: str = Field(..., description="記録基準日 (YYYY-MM-DD)")
+    recorded_at: str = Field(..., description="記録タイムスタンプ (ISO8601)")
+    holder: str = Field(..., description="所有者区分 (個人 / 法人 / 個人(DC))")
+    account: str = Field(..., description="格納口座種別")
+    code: str = Field(..., min_length=8, max_length=8, description="投信協会コード (8桁)")
+    isin: str = Field(default="", description="ISINコード")
+    name: str = Field(..., description="銘柄名")
+    units: float = Field(..., gt=0.0, description="保有口数")
+    cost_basis: int = Field(default=0, ge=0, description="取得簿価 (円)")
+    nav: float = Field(..., ge=0.0, description="基準価額 (円/1万口)")
+    valuation: int = Field(..., ge=0, description="現在値 / 評価額 (円)")
+    profit_loss: int | None = Field(default=None, description="含み損益 (円)")
+
+    @property
+    def identity_key(self) -> str:
+        """4要素完全一致による同一ファンド識別キー。"""
+        return f"{self.holder}__{self.account}__{self.code}__{self.isin}"

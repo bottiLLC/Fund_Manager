@@ -7,12 +7,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.history_db import HistoryRepository
 from src.models import HoldingEvaluation, PortfolioItem, PortfolioReport, TankSummary
 from src.sbi_importer import ImportCandidate, SbiRawRecord
 from src.ui.header import render_app_header
 from src.ui.sbi_wizard import render_sbi_import_section
 from src.ui.sidebar import render_app_sidebar
 from src.ui.tab_dashboard import render_dashboard_tab
+from src.ui.tab_history import render_history_tab
 from src.ui.tab_master import render_master_tab
 
 
@@ -1005,3 +1007,200 @@ def test_render_app_sidebar_refresh_feedback_variants(tmp_path: Path) -> None:
     ):
         render_app_sidebar(project_root=tmp_path)
         mock_err.assert_called_once_with("外部通信失敗")
+
+
+def test_render_dashboard_tab_with_history_repo(tmp_path: Path) -> None:
+    """ダッシュボードタブにおける積み上げ棒グラフの履歴連携（空時およびデータ存在時）を検証する。"""
+    repo = HistoryRepository(tmp_path / "test_hist.db")
+    item = PortfolioItem(
+        holder="個人",
+        account="NISA",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="オルカン",
+        units=1000.0,
+        cost_basis=10000,
+    )
+    holding = HoldingEvaluation(
+        item=item,
+        nav=12000.0,
+        valuation=1200,
+        profit_loss=200,
+        effective_units=1000.0,
+    )
+    report = PortfolioReport(
+        as_of_date="2026-10-23",
+        holdings=[holding],
+        tank_summaries=[],
+        total_valuation=1200,
+        total_profit_loss=200,
+    )
+
+    # 1. 履歴が空の場合
+    with (
+        patch("streamlit.radio", return_value="銘柄別"),
+        patch("streamlit.info") as mock_info,
+        patch("streamlit.altair_chart") as mock_chart,
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric"),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.dataframe"),
+    ):
+        render_dashboard_tab(report, history_repo=repo)
+        mock_info.assert_called_once()
+        assert "過去の履歴データがまだ記録されていません" in mock_info.call_args[0][0]
+        # ドーナツチャートのみ呼ばれる（積み上げ棒グラフは描画されない）
+        assert mock_chart.call_count == 1
+
+    # 2. 履歴が存在する場合
+    from src.models import FundSnapshotRecord
+
+    repo.upsert_snapshots(
+        [
+            FundSnapshotRecord(
+                recorded_date="2026-10-23",
+                recorded_at="2026-10-23T12:00:00+00:00",
+                holder="個人",
+                account="NISA",
+                code="0331418A",
+                isin="JP90C000H1T1",
+                name="オルカン",
+                units=1000.0,
+                cost_basis=10000,
+                nav=12000.0,
+                valuation=1200,
+                profit_loss=200,
+            )
+        ]
+    )
+
+    with (
+        patch("streamlit.radio", return_value="銘柄別"),
+        patch("streamlit.info"),
+        patch("streamlit.altair_chart") as mock_chart,
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric"),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.dataframe"),
+    ):
+        render_dashboard_tab(report, history_repo=repo)
+        # 積み上げ棒グラフとドーナツチャートの計2回描画
+        assert mock_chart.call_count == 2
+
+
+def test_render_history_tab_empty(tmp_path: Path) -> None:
+    """履歴データが空の場合の案内メッセージ表示を検証する。"""
+    repo = HistoryRepository(tmp_path / "empty_hist.db")
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.info") as mock_info,
+    ):
+        render_history_tab(history_repo=repo)
+        mock_info.assert_called_once()
+        assert "過去のファンド履歴スナップショットが記録されていません" in mock_info.call_args[0][0]
+
+
+def test_render_history_tab_populated(tmp_path: Path) -> None:
+    """履歴データが存在する場合の各種UIコンポーネント（セレクタ、メトリクス、3チャートタブ、テーブル）の描画を検証する。"""
+    repo = HistoryRepository(tmp_path / "pop_hist.db")
+    from src.models import FundSnapshotRecord
+
+    # 2日分登録
+    repo.upsert_snapshots(
+        [
+            FundSnapshotRecord(
+                recorded_date="2026-10-21",
+                recorded_at="2026-10-21T12:00:00+00:00",
+                holder="個人",
+                account="NISA",
+                code="0331418A",
+                isin="JP90C000H1T1",
+                name="オルカン",
+                units=1000.0,
+                cost_basis=10000,
+                nav=10000.0,
+                valuation=1000,
+                profit_loss=0,
+            ),
+            FundSnapshotRecord(
+                recorded_date="2026-10-23",
+                recorded_at="2026-10-23T12:00:00+00:00",
+                holder="個人",
+                account="NISA",
+                code="0331418A",
+                isin="JP90C000H1T1",
+                name="オルカン",
+                units=1500.0,
+                cost_basis=15000,
+                nav=12000.0,
+                valuation=1800,
+                profit_loss=300,
+            ),
+        ]
+    )
+
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.selectbox", return_value="[個人] NISA - オルカン (0331418A)"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric") as mock_metric,
+        patch("streamlit.divider"),
+        patch("streamlit.tabs", return_value=[MagicMock(), MagicMock(), MagicMock()]),
+        patch("streamlit.altair_chart") as mock_chart,
+        patch("streamlit.dataframe") as mock_df,
+        patch("streamlit.download_button") as mock_dl,
+    ):
+        render_history_tab(history_repo=repo)
+        assert mock_metric.call_count == 4
+        # 評価額チャート、NAVチャート、簿価チャート、口数チャートの計4回
+        assert mock_chart.call_count == 4
+        mock_df.assert_called_once()
+        mock_dl.assert_called_once()
+
+
+def test_render_history_tab_none_selection_and_empty_df(tmp_path: Path) -> None:
+    """セレクタ未選択、または抽出データが空の場合の分岐を検証する。"""
+    repo = HistoryRepository(tmp_path / "edge_hist.db")
+    from src.models import FundSnapshotRecord
+
+    repo.upsert_snapshots(
+        [
+            FundSnapshotRecord(
+                recorded_date="2026-10-21",
+                recorded_at="2026-10-21T12:00:00+00:00",
+                holder="個人",
+                account="NISA",
+                code="0331418A",
+                isin="JP90C000H1T1",
+                name="オルカン",
+                units=1000.0,
+                cost_basis=10000,
+                nav=10000.0,
+                valuation=1000,
+                profit_loss=0,
+            )
+        ]
+    )
+
+    # 1. 選択が空文字列
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.selectbox", return_value=None),
+        patch("streamlit.metric") as mock_metric,
+    ):
+        render_history_tab(history_repo=repo)
+        mock_metric.assert_not_called()
+
+    # 2. 抽出されたDataFrameが空（モックによる異常系）
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.selectbox", return_value="[個人] NISA - オルカン (0331418A)"),
+        patch.object(
+            repo, "get_fund_history_df", return_value=repo.get_all_snapshots_df().iloc[0:0]
+        ),
+        patch("streamlit.warning") as mock_warn,
+    ):
+        render_history_tab(history_repo=repo)
+        mock_warn.assert_called_once()
