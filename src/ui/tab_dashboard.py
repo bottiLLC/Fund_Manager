@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from src.formatter import format_rate, format_yen
-from src.history_db import HistoryRepository
+from src.history_db import PERIOD_OPTIONS, HistoryRepository, calculate_start_date
 from src.models import PortfolioReport
 
 
@@ -17,7 +17,7 @@ def render_dashboard_tab(
 ) -> None:
     """ポートフォリオ評価ダッシュボードタブを描画する。
 
-    KPIメトリクス、総資産推移積み上げ棒グラフ、口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
+    KPIメトリクス、総資産推移積み上げ面グラフ（取得価額折れ線重畳）、口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
 
     Args:
         report: ポートフォリオ集計・評価レポート。
@@ -83,25 +83,43 @@ def render_dashboard_tab(
 
     st.divider()
 
-    # 2. 総資産の推移（全ファンド積み上げ式棒グラフ）
+    # 2. 総資産の推移（積み上げ面グラフ ＆ 取得価額合計）
     if history_repo is not None:
-        st.subheader("📈 総資産の推移（積み上げ棒グラフ）")
-        group_mode = st.radio(
-            "積み上げ区分",
-            options=["銘柄別", "格納口座別", "法人/個人別"],
-            index=0,
-            horizontal=True,
-            key="dashboard_stacked_group_mode",
-            help="棒グラフの積み上げ要素を切り替えます。",
-        )
-        col_map = {"銘柄別": "name", "格納口座別": "account", "法人/個人別": "holder"}
-        target_group_col = col_map[group_mode]
+        st.subheader("📈 総資産の推移（積み上げ面グラフ ＆ 取得価額合計）")
+        col_period, col_group = st.columns(2)
+        with col_period:
+            selected_period = st.radio(
+                "表示期間",
+                options=PERIOD_OPTIONS,
+                index=3,
+                horizontal=True,
+                key="dashboard_period_mode",
+                help="チャートの表示期間を切り替えます。",
+            )
+        with col_group:
+            group_mode = st.radio(
+                "積み上げ区分",
+                options=["銘柄別", "格納口座別", "法人/個人別"],
+                index=0,
+                horizontal=True,
+                key="dashboard_stacked_group_mode",
+                help="面グラフの積み上げ要素を切り替えます。",
+            )
 
-        stacked_df = history_repo.get_stacked_asset_df(group_by=target_group_col)
-        if not stacked_df.empty:
-            bar_chart = (
+        latest_date = history_repo.get_latest_recorded_date()
+        start_date = calculate_start_date(latest_date, selected_period) if latest_date else None
+
+        col_map = {"銘柄別": "name", "格納口座別": "account", "法人/個人別": "holder"}
+        target_group_col = col_map.get(group_mode, "name")
+
+        stacked_df = history_repo.get_stacked_asset_df(
+            group_by=target_group_col, start_date=start_date
+        )
+        total_df = history_repo.get_total_asset_history_df(start_date=start_date)
+        if not stacked_df.empty and not total_df.empty:
+            area_chart = (
                 alt.Chart(stacked_df)
-                .mark_bar()
+                .mark_area(opacity=0.6)
                 .encode(
                     x=alt.X(
                         "recorded_date:T",
@@ -125,12 +143,34 @@ def render_dashboard_tab(
                         alt.Tooltip("valuation:Q", title="評価額 (円)", format=",.0f"),
                     ],
                 )
-                .properties(height=340)
             )
-            st.altair_chart(bar_chart, use_container_width=True)
+
+            # 2. 取得価額合計の折れ線グラフ
+            line_chart = (
+                alt.Chart(total_df)
+                .mark_line(point=True, color="#ff4b4b", strokeWidth=2.5)
+                .encode(
+                    x=alt.X("recorded_date:T"),
+                    y=alt.Y("total_cost_basis:Q", title="資産額 (円)"),
+                    tooltip=[
+                        alt.Tooltip("recorded_date:T", title="記録日", format="%Y-%m-%d"),
+                        alt.Tooltip("total_valuation:Q", title="総評価額 (円)", format=",.0f"),
+                        alt.Tooltip("total_cost_basis:Q", title="総取得価額 (円)", format=",.0f"),
+                        alt.Tooltip("total_profit_loss:Q", title="総含み損益 (円)", format=",.0f"),
+                    ],
+                )
+            )
+
+            # 3. Y軸スケールを共有して合成
+            combined_chart = (
+                alt.layer(area_chart, line_chart).resolve_scale(y="shared").properties(height=360)
+            )
+            st.altair_chart(combined_chart, use_container_width=True)
+        elif latest_date:
+            st.info("ℹ️ 指定された期間内の履歴データが存在しません。「全期間」を選択してください。")
         else:
             st.info(
-                "ℹ️ 過去の履歴データがまだ記録されていません。スナップショットが記録されると時系列棒グラフが表示されます。"
+                "ℹ️ 過去の履歴データがまだ記録されていません。スナップショットが記録されると時系列グラフが表示されます。"
             )
 
         st.divider()

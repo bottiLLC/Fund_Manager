@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from src.formatter import format_yen
-from src.history_db import HistoryRepository
+from src.history_db import PERIOD_OPTIONS, HistoryRepository, calculate_start_date
 
 
 def render_history_tab(history_repo: HistoryRepository) -> None:
@@ -28,24 +28,39 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
         )
         return
 
-    # 1. ファンドセレクタ
-    label_to_fund = {f.display_label: f for f in distinct_funds}
-    selected_label = st.selectbox(
-        "対象ファンドを選択",
-        options=list(label_to_fund.keys()),
-        index=0,
-        help="「法人/個人」「格納口座」「協会コード」「ISIN」が一致する一意なファンドを選択します。",
-    )
+    # 1. ファンドセレクタと表示期間セレクタ
+    col_fund, col_period = st.columns([3, 2])
+    with col_fund:
+        label_to_fund = {f.display_label: f for f in distinct_funds}
+        selected_label = st.selectbox(
+            "対象ファンドを選択",
+            options=list(label_to_fund.keys()),
+            index=0,
+            help="「法人/個人」「格納口座」「協会コード」「ISIN」が一致する一意なファンドを選択します。",
+        )
+    with col_period:
+        selected_period = st.radio(
+            "表示期間",
+            options=PERIOD_OPTIONS,
+            index=3,
+            horizontal=True,
+            key="history_period_mode",
+            help="チャートの表示期間を切り替えます。",
+        )
 
     if not selected_label:
         return
 
     selected_fund = label_to_fund[selected_label]
+    latest_date = history_repo.get_latest_recorded_date()
+    start_date = calculate_start_date(latest_date, selected_period) if latest_date else None
+
     df_history = history_repo.get_fund_history_df(
         holder=selected_fund.holder,
         account=selected_fund.account,
         code=selected_fund.code,
         isin=selected_fund.isin,
+        start_date=start_date,
     )
 
     if df_history.empty:
@@ -96,30 +111,55 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
     # 3. 取得簿価・口数・現在値（基準価額/評価額）の時系列推移チャート
     st.subheader("📊 時系列推移チャート")
     tab_chart_val, tab_chart_cost, tab_chart_units = st.tabs(
-        ["💹 現在値・基準価額推移", "💰 取得簿価推移", "📦 保有口数推移"]
+        ["💹 資産推移（評価額面 × 取得簿価折れ線）", "💰 取得簿価推移", "📦 保有口数推移"]
     )
 
     with tab_chart_val:
-        # 現在評価額推移
-        val_chart = (
+        # 1. 評価額面グラフ（資産ボリューム）
+        val_area = (
             alt.Chart(df_history)
-            .mark_line(point=True, color="#1f77b4")
+            .mark_area(opacity=0.35, color="#1f77b4")
             .encode(
                 x=alt.X(
                     "recorded_date:T",
                     title="記録日",
                     axis=alt.Axis(format="%Y-%m-%d", labelAngle=-45),
                 ),
-                y=alt.Y("valuation:Q", title="評価額 (円)", axis=alt.Axis(format="~s")),
+                y=alt.Y("valuation:Q", title="資産額 (円)", axis=alt.Axis(format="~s")),
                 tooltip=[
                     alt.Tooltip("recorded_date:T", title="記録日", format="%Y-%m-%d"),
                     alt.Tooltip("valuation:Q", title="評価額 (円)", format=",.0f"),
-                    alt.Tooltip("nav:Q", title="基準価額 (円)", format=",.0f"),
+                    alt.Tooltip("cost_basis:Q", title="取得簿価 (円)", format=",.0f"),
+                    alt.Tooltip("profit_loss:Q", title="含み損益 (円)", format=",.0f"),
                 ],
             )
-            .properties(height=320, title=f"{selected_fund.name} - 現在評価額 (円) 推移")
         )
-        st.altair_chart(val_chart, use_container_width=True)
+
+        # 2. 取得簿価折れ線グラフ（元本ライン）
+        cost_line = (
+            alt.Chart(df_history)
+            .mark_line(point=True, color="#2ca02c", strokeWidth=2)
+            .encode(
+                x=alt.X("recorded_date:T"),
+                y=alt.Y("cost_basis:Q", title="資産額 (円)"),
+                tooltip=[
+                    alt.Tooltip("recorded_date:T", title="記録日", format="%Y-%m-%d"),
+                    alt.Tooltip("valuation:Q", title="評価額 (円)", format=",.0f"),
+                    alt.Tooltip("cost_basis:Q", title="取得簿価 (円)", format=",.0f"),
+                ],
+            )
+        )
+
+        # 3. 合成レイヤーチャート（面が線を上回れば含み益、下回れば含み損）
+        asset_layer_chart = (
+            alt.layer(val_area, cost_line)
+            .resolve_scale(y="shared")
+            .properties(
+                height=320,
+                title=f"{selected_fund.name} - 資産推移（評価額面グラフ × 取得簿価折れ線）",
+            )
+        )
+        st.altair_chart(asset_layer_chart, use_container_width=True)
 
         # 基準価額 (NAV) 単体推移
         nav_chart = (

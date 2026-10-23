@@ -1076,7 +1076,7 @@ def test_render_dashboard_tab_with_history_repo(tmp_path: Path) -> None:
     )
 
     with (
-        patch("streamlit.radio", return_value="銘柄別"),
+        patch("streamlit.radio", side_effect=["全期間", "銘柄別"]),
         patch("streamlit.info"),
         patch("streamlit.altair_chart") as mock_chart,
         patch("streamlit.columns", side_effect=mock_columns),
@@ -1086,8 +1086,26 @@ def test_render_dashboard_tab_with_history_repo(tmp_path: Path) -> None:
         patch("streamlit.dataframe"),
     ):
         render_dashboard_tab(report, history_repo=repo)
-        # 積み上げ棒グラフとドーナツチャートの計2回描画
+        # 積み上げ面グラフとドーナツチャートの計2回描画
         assert mock_chart.call_count == 2
+
+    # 3. 履歴は存在するが指定期間で空になる場合
+    with (
+        patch("streamlit.radio", side_effect=["3ヵ月", "銘柄別"]),
+        patch.object(
+            repo, "get_stacked_asset_df", return_value=repo.get_all_snapshots_df().iloc[0:0]
+        ),
+        patch("streamlit.info") as mock_info_period,
+        patch("streamlit.altair_chart"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric"),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.dataframe"),
+    ):
+        render_dashboard_tab(report, history_repo=repo)
+        mock_info_period.assert_called_once()
+        assert "指定された期間内の履歴データが存在しません" in mock_info_period.call_args[0][0]
 
 
 def test_render_history_tab_empty(tmp_path: Path) -> None:

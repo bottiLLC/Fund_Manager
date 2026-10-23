@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.history_db import HistoryRepository
+from src.history_db import PERIOD_OPTIONS, HistoryRepository, calculate_start_date
 from src.models import FundSnapshotRecord
 
 
@@ -212,3 +212,72 @@ def test_get_latest_recorded_date_and_delete(repo: HistoryRepository) -> None:
     # 存在しない日の削除は 0 件
     deleted_zero = repo.delete_snapshot_by_date("2020-01-01")
     assert deleted_zero == 0
+
+
+def test_calculate_start_date() -> None:
+    """期間区分に応じた開始日算出ロジックを検証する。"""
+    # 正常系
+    assert calculate_start_date("2026-10-23", "全期間") is None
+    assert calculate_start_date("2026-10-23", "3ヵ月") == "2026-07-23"
+    assert calculate_start_date("2026-10-23", "1年") == "2025-10-23"
+    assert calculate_start_date("2026-10-23", "3年") == "2023-10-24"
+    assert "全期間" in PERIOD_OPTIONS
+
+    # 異常系・境界値
+    assert calculate_start_date("invalid-date", "1年") is None
+    assert calculate_start_date("2026-10-23", "10年") is None
+
+
+def test_get_total_asset_history_df(repo: HistoryRepository) -> None:
+    """全ファンド合算の資産推移集計および期間フィルタリングを検証する。"""
+    # 空DB時
+    df_empty = repo.get_total_asset_history_df()
+    assert df_empty.empty
+
+    # 複数日付・複数ファンド登録
+    rec1_a = _make_record(
+        recorded_date="2026-01-01", valuation=10000, cost_basis=8000, profit_loss=2000
+    )
+    rec1_b = _make_record(
+        recorded_date="2026-01-01",
+        holder="法人",
+        code="03311187",
+        isin="JP90C000GKC6",
+        valuation=20000,
+        cost_basis=15000,
+        profit_loss=5000,
+    )
+    rec2 = _make_record(
+        recorded_date="2026-06-01", valuation=35000, cost_basis=25000, profit_loss=10000
+    )
+    rec3 = _make_record(
+        recorded_date="2026-10-23", valuation=40000, cost_basis=30000, profit_loss=10000
+    )
+
+    repo.upsert_snapshots([rec1_a, rec1_b, rec2, rec3])
+
+    # 全期間
+    df_all = repo.get_total_asset_history_df()
+    assert len(df_all) == 3
+    row0 = df_all.iloc[0]
+    assert row0["recorded_date"] == "2026-01-01"
+    assert row0["total_valuation"] == 30000
+    assert row0["total_cost_basis"] == 23000
+    assert row0["total_profit_loss"] == 7000
+
+    # 期間指定（2026-06-01以降）
+    df_filtered = repo.get_total_asset_history_df(start_date="2026-06-01")
+    assert len(df_filtered) == 2
+    assert list(df_filtered["recorded_date"]) == ["2026-06-01", "2026-10-23"]
+
+    # 積み上げ集計の期間指定
+    df_stacked_filtered = repo.get_stacked_asset_df(group_by="name", start_date="2026-06-01")
+    assert len(df_stacked_filtered) == 2
+    assert "2026-01-01" not in set(df_stacked_filtered["recorded_date"])
+
+    # 個別ファンド推移の期間指定
+    df_fund_filtered = repo.get_fund_history_df(
+        holder="個人", account="NISA", code="0331418A", isin="JP90C000H1T1", start_date="2026-06-01"
+    )
+    assert len(df_fund_filtered) == 2
+    assert list(df_fund_filtered["recorded_date"]) == ["2026-06-01", "2026-10-23"]

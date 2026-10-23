@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -14,6 +15,35 @@ import pandas as pd
 from src.models import FundSnapshotRecord
 
 DEFAULT_DB_FILE: Final[str] = "fund_history.db"
+PERIOD_OPTIONS: Final[tuple[str, ...]] = ("3ヵ月", "1年", "3年", "全期間")
+
+
+def calculate_start_date(latest_date_str: str, period: str) -> str | None:
+    """最新記録日と期間区分から抽出開始日 (YYYY-MM-DD) を決定論的に算出する。
+
+    Args:
+        latest_date_str: 基準日文字列 (YYYY-MM-DD)。
+        period: 期間区分 ("3ヵ月", "1年", "3年", "全期間" など)。
+
+    Returns:
+        開始日文字列 (YYYY-MM-DD)。全期間または未該当時の場合は None。
+    """
+    if period == "全期間":
+        return None
+    try:
+        latest_dt = datetime.strptime(latest_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+    days_map = {
+        "3ヵ月": 92,
+        "1年": 365,
+        "3年": 365 * 3,
+    }
+    delta_days = days_map.get(period)
+    if delta_days is None:
+        return None
+    return (latest_dt - timedelta(days=delta_days)).isoformat()
 
 
 @dataclass(frozen=True)
@@ -200,6 +230,7 @@ class HistoryRepository:
         account: str,
         code: str,
         isin: str,
+        start_date: str | None = None,
     ) -> pd.DataFrame:
         """指定ファンド（4要素完全一致）の時系列推移を DataFrame として取得する。
 
@@ -208,30 +239,48 @@ class HistoryRepository:
             account: 格納口座。
             code: 投信協会コード。
             isin: ISINコード。
+            start_date: 抽出開始日 (YYYY-MM-DD)。None の場合は全期間。
 
         Returns:
             該当ファンドの時系列 DataFrame（recorded_date 昇順）。
         """
-        query = """
-            SELECT 
-                recorded_date, recorded_at, holder, account, code, isin,
-                name, units, cost_basis, nav, valuation, profit_loss
-            FROM fund_snapshots
-            WHERE holder = ? AND account = ? AND code = ? AND isin = ?
-            ORDER BY recorded_date ASC;
-        """
+        if start_date:
+            query = """
+                SELECT 
+                    recorded_date, recorded_at, holder, account, code, isin,
+                    name, units, cost_basis, nav, valuation, profit_loss
+                FROM fund_snapshots
+                WHERE holder = ? AND account = ? AND code = ? AND isin = ? AND recorded_date >= ?
+                ORDER BY recorded_date ASC;
+            """
+            params: tuple[str, ...] = (holder, account, code, isin, start_date)
+        else:
+            query = """
+                SELECT 
+                    recorded_date, recorded_at, holder, account, code, isin,
+                    name, units, cost_basis, nav, valuation, profit_loss
+                FROM fund_snapshots
+                WHERE holder = ? AND account = ? AND code = ? AND isin = ?
+                ORDER BY recorded_date ASC;
+            """
+            params = (holder, account, code, isin)
         with self._connect() as conn:
             return pd.read_sql_query(
                 query,
                 conn,
-                params=(holder, account, code, isin),
+                params=params,
             )
 
-    def get_stacked_asset_df(self, group_by: str = "name") -> pd.DataFrame:
-        """ダッシュボード積み上げ棒グラフ用集計データを取得する。
+    def get_stacked_asset_df(
+        self,
+        group_by: str = "name",
+        start_date: str | None = None,
+    ) -> pd.DataFrame:
+        """ダッシュボード積み上げグラフ用集計データを取得する。
 
         Args:
             group_by: 積み上げ集計のグループキー（'name', 'account', 'holder' のいずれか）。
+            start_date: 抽出開始日 (YYYY-MM-DD)。None の場合は全期間。
 
         Returns:
             ['recorded_date', 'group_key', 'valuation'] を持つ DataFrame。
@@ -239,17 +288,70 @@ class HistoryRepository:
         allowed_columns = {"name", "account", "holder"}
         target_col = group_by if group_by in allowed_columns else "name"
 
-        query = f"""
-            SELECT 
-                recorded_date,
-                {target_col} AS group_key,
-                SUM(valuation) AS valuation
-            FROM fund_snapshots
-            GROUP BY recorded_date, {target_col}
-            ORDER BY recorded_date ASC, {target_col} ASC;
-        """
+        if start_date:
+            query = f"""
+                SELECT 
+                    recorded_date,
+                    {target_col} AS group_key,
+                    SUM(valuation) AS valuation
+                FROM fund_snapshots
+                WHERE recorded_date >= ?
+                GROUP BY recorded_date, {target_col}
+                ORDER BY recorded_date ASC, {target_col} ASC;
+            """
+            params: tuple[str, ...] = (start_date,)
+        else:
+            query = f"""
+                SELECT 
+                    recorded_date,
+                    {target_col} AS group_key,
+                    SUM(valuation) AS valuation
+                FROM fund_snapshots
+                GROUP BY recorded_date, {target_col}
+                ORDER BY recorded_date ASC, {target_col} ASC;
+            """
+            params = ()
+
         with self._connect() as conn:
-            return pd.read_sql_query(query, conn)
+            return pd.read_sql_query(query, conn, params=params)
+
+    def get_total_asset_history_df(self, start_date: str | None = None) -> pd.DataFrame:
+        """全ファンド合算の時系列資産推移（評価額合計・取得価額合計・損益合計）を取得する。
+
+        Args:
+            start_date: 抽出開始日 (YYYY-MM-DD)。None の場合は全期間。
+
+        Returns:
+            ['recorded_date', 'total_valuation', 'total_cost_basis', 'total_profit_loss'] を持つ DataFrame。
+        """
+        if start_date:
+            query = """
+                SELECT 
+                    recorded_date,
+                    SUM(valuation) AS total_valuation,
+                    SUM(cost_basis) AS total_cost_basis,
+                    SUM(COALESCE(profit_loss, valuation - cost_basis)) AS total_profit_loss
+                FROM fund_snapshots
+                WHERE recorded_date >= ?
+                GROUP BY recorded_date
+                ORDER BY recorded_date ASC;
+            """
+            params: tuple[str, ...] = (start_date,)
+        else:
+            query = """
+                SELECT 
+                    recorded_date,
+                    SUM(valuation) AS total_valuation,
+                    SUM(cost_basis) AS total_cost_basis,
+                    SUM(COALESCE(profit_loss, valuation - cost_basis)) AS total_profit_loss
+                FROM fund_snapshots
+                GROUP BY recorded_date
+                ORDER BY recorded_date ASC;
+            """
+            params = ()
+
+        with self._connect() as conn:
+            return pd.read_sql_query(query, conn, params=params)
 
     def get_latest_recorded_date(self) -> str | None:
         """直近でスナップショットが記録された最新日付（YYYY-MM-DD）を取得する。
