@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 # Deterministic sys.path configuration for top-level entry point
-_PROJECT_ROOT = Path(__file__).resolve().parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+_ROOT = Path(__file__).resolve().parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 # Ensure UTF-8 output encoding on Windows consoles
 if hasattr(sys.stdout, "reconfigure"):
@@ -41,7 +41,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=_PROJECT_ROOT / "data" / "portfolio.csv",
+        default=_ROOT / "data" / "portfolio.csv",
         help="保有資産CSVファイルへのパス (デフォルト: ./data/portfolio.csv)",
     )
     parser.add_argument(
@@ -92,7 +92,7 @@ def main() -> int:
                 sys.stderr.write("エラー: 有効な投資信託明細が検出されませんでした。\n")
                 return 1
 
-            alias_file = _PROJECT_ROOT / "data" / "custom_fund_aliases.json"
+            alias_file = _ROOT / "data" / "custom_fund_aliases.json"
             custom_aliases = load_custom_aliases(alias_file)
             candidates = resolve_candidates(
                 records=records,
@@ -123,7 +123,7 @@ def main() -> int:
             return 1
 
     targets = {item.code: item.isin for item in portfolio_items}
-    cache_dir = _PROJECT_ROOT / "data" / "cache"
+    cache_dir = _ROOT / "data" / "cache"
 
     fetch_result = fetch_latest_nav_and_names(
         targets=targets,

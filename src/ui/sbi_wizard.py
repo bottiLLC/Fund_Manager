@@ -55,9 +55,12 @@ def render_sbi_import_section(
             st.markdown(f"- **反映方式**: {res['mode_label']}")
             st.markdown(f"- **保存ファイル**: `{portfolio_csv_path.name}`")
             if res.get("items"):
-                st.dataframe(pd.DataFrame(res["items"]), use_container_width=True)
+                st.dataframe(pd.DataFrame(res["items"]), width="stretch")
             if st.button(
-                "✕ 取込結果メッセージを閉じる", type="secondary", key="btn_close_sbi_result"
+                "✕ 取込結果メッセージを閉じる",
+                icon=":material/close:",
+                type="secondary",
+                key="btn_close_sbi_result",
             ):
                 del st.session_state["sbi_import_result"]
                 st.rerun()
@@ -243,8 +246,9 @@ def render_sbi_import_section(
 
             submit_sbi = st.form_submit_button(
                 "🚀 SBI証券ポートフォリオを取り込んで保存",
+                icon=":material/upload_file:",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             )
 
         # プレビューテーブル表示
@@ -263,7 +267,7 @@ def render_sbi_import_section(
             }
             for rc in resolved_candidates
         ]
-        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(preview_rows), width="stretch")
 
         if submit_sbi:
             all_ready = all(rc.is_resolved for rc in resolved_candidates)

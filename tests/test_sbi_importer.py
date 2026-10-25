@@ -10,6 +10,7 @@ import pytest
 
 from src.models import PortfolioItem
 from src.sbi_importer import (
+    PRESET_FUNDS,
     ImportCandidate,
     MergeMode,
     SbiRawRecord,
@@ -476,10 +477,13 @@ def test_parse_sbi_portfolio_csv_missing_indices_and_cleanup(tmp_path: Path) -> 
     assert not (tmp_path / "dummy_tmp").exists()
 
     # 3. resolve_candidates で PRESET_FUNDS の name が空の場合
-    with patch.dict(
+    patched_presets = {
+        **dict(PRESET_FUNDS),
+        "99999999": {"name": "", "isin": "JP9999999999"},
+    }
+    with patch(
         "src.sbi_importer.PRESET_FUNDS",
-        {"99999999": {"name": "", "isin": "JP9999999999"}},
-        clear=False,
+        patched_presets,
     ):
         cand = resolve_candidates(
             records=[

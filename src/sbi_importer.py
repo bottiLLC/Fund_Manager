@@ -12,8 +12,10 @@ import json
 import re
 import tempfile
 import unicodedata
+from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,35 +24,37 @@ from src.models import PortfolioItem
 from src.portfolio_loader import CANONICAL_PRESET_FUNDS
 
 # 後方互換用エイリアス（テスト・外部参照用）
-PRESET_FUNDS: Final[dict[str, dict[str, str]]] = CANONICAL_PRESET_FUNDS
+PRESET_FUNDS: Final[Mapping[str, Mapping[str, str]]] = CANONICAL_PRESET_FUNDS
 
 # 口座セクション抽出正規表現（例: 投資信託（金額/NISA口座（成長投資枠）））
 ACCOUNT_SECTION_PATTERN: Final[re.Pattern[str]] = re.compile(r"投資信託[（\(][^/]+/(.+)[）\)]")
 
 # 標準口座名の正規化辞書
-DEFAULT_ACCOUNT_MAP: Final[dict[str, str]] = {
-    # NISA（つみたて投資枠）
-    "NISA口座（つみたて投資枠）": "NISA預り（つみたて投資枠）",
-    "NISA口座(つみたて投資枠)": "NISA預り（つみたて投資枠）",
-    "NISA預り（つみたて投資枠）": "NISA預り（つみたて投資枠）",
-    "NISA預り(つみたて投資枠)": "NISA預り（つみたて投資枠）",
-    # NISA（成長投資枠）
-    "NISA口座（成長投資枠）": "NISA預り（成長投資枠）",
-    "NISA口座(成長投資枠)": "NISA預り（成長投資枠）",
-    "NISA預り（成長投資枠）": "NISA預り（成長投資枠）",
-    "NISA預り(成長投資枠)": "NISA預り（成長投資枠）",
-    # 旧つみたてNISA
-    "旧つみたてNISA口座": "NISA預り（旧つみたてNISA預り）",
-    "旧つみたてNISA預り": "NISA預り（旧つみたてNISA預り）",
-    "NISA預り（旧つみたてNISA預り）": "NISA預り（旧つみたてNISA預り）",
-    "NISA預り(旧つみたてNISA預り)": "NISA預り（旧つみたてNISA預り）",
-    # 一般
-    "一般口座": "一般預り",
-    "一般預り": "一般預り",
-    # 特定
-    "特定口座": "特定預り",
-    "特定預り": "特定預り",
-}
+DEFAULT_ACCOUNT_MAP: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        # NISA（つみたて投資枠）
+        "NISA口座（つみたて投資枠）": "NISA預り（つみたて投資枠）",
+        "NISA口座(つみたて投資枠)": "NISA預り（つみたて投資枠）",
+        "NISA預り（つみたて投資枠）": "NISA預り（つみたて投資枠）",
+        "NISA預り(つみたて投資枠)": "NISA預り（つみたて投資枠）",
+        # NISA（成長投資枠）
+        "NISA口座（成長投資枠）": "NISA預り（成長投資枠）",
+        "NISA口座(成長投資枠)": "NISA預り（成長投資枠）",
+        "NISA預り（成長投資枠）": "NISA預り（成長投資枠）",
+        "NISA預り(成長投資枠)": "NISA預り（成長投資枠）",
+        # 旧つみたてNISA
+        "旧つみたてNISA口座": "NISA預り（旧つみたてNISA預り）",
+        "旧つみたてNISA預り": "NISA預り（旧つみたてNISA預り）",
+        "NISA預り（旧つみたてNISA預り）": "NISA預り（旧つみたてNISA預り）",
+        "NISA預り(旧つみたてNISA預り)": "NISA預り（旧つみたてNISA預り）",
+        # 一般
+        "一般口座": "一般預り",
+        "一般預り": "一般預り",
+        # 特定
+        "特定口座": "特定預り",
+        "特定預り": "特定預り",
+    }
+)
 
 
 class MergeMode(StrEnum):

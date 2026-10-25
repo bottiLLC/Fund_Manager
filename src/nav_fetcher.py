@@ -8,9 +8,11 @@ import io
 import json
 import re
 import unicodedata
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Self
 
 import requests
@@ -21,9 +23,9 @@ from src.portfolio_loader import (
     PRESET_FUNDS,
 )
 
-ISIN_TO_CANONICAL_CODE: Final[dict[str, str]] = {
-    meta["isin"]: code for code, meta in CANONICAL_PRESET_FUNDS.items() if "isin" in meta
-}
+ISIN_TO_CANONICAL_CODE: Final[Mapping[str, str]] = MappingProxyType(
+    {meta["isin"]: code for code, meta in CANONICAL_PRESET_FUNDS.items() if "isin" in meta}
+)
 
 
 class NavFetchResult(tuple[str, dict[str, float], dict[str, str]]):
@@ -81,73 +83,99 @@ DIRECT_DETAIL_URL_TEMPLATE: Final[str] = (
 )
 
 # ネットワーク完全不通時用の内蔵基準価額・銘柄名フォールバック
-FALLBACK_FUNDS: Final[dict[str, dict[str, Any]]] = {
-    "03311187": {
-        "isin": "JP90C000GKC6",
-        "name": "eMAXIS Slim 米国株式(S&P500)",
-        "nav": 44943.0,
-    },
-    "0331124A": {
-        "isin": "JP90C000R9Z9",
-        "name": "eMAXIS Slim 先進国株式(含む日本)<オール先進国>",
-        "nav": 14137.0,
-    },
-    "0331A172": {
-        "isin": "JP90C000END3",
-        "name": "eMAXIS Slim 先進国債券インデックス(除く日本)",
-        "nav": 15120.0,
-    },
-    "8931217C": {
-        "isin": "JP90C000FQR3",
-        "name": "SBI･全世界株式インデックス･ファンド（雪だるま）",
-        "nav": 35039.0,
-    },
-    "03319172": {
-        "isin": "JP90C000ENC5",
-        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
-        "nav": 45368.0,
-    },
-    "2931113C": {
-        "isin": "JP90C0009VE0",
-        "name": "ニッセイ外国株式インデックスファンド<購入・換金手数料なし>",
-        "nav": 59920.0,
-    },
-    "0331418A": {
-        "isin": "JP90C000H1T1",
-        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
-        "nav": 37859.0,
-    },
-    "89311221": {
-        "isin": "JP90C000MWH8",
-        "name": "SBI･V･全世界株式インデックス・ファンド",
-        "nav": 22683.0,
-    },
-    "89311199": {
-        "isin": "JP90C000J569",
-        "name": "SBI･V･S&P500インデックス・ファンド",
-        "nav": 41070.0,
-    },
-    # 旧コードとの互換
-    "03311181": {
-        "isin": "JP90C000H1T1",
-        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
-        "nav": 37859.0,
-    },
-    "03314187": {
-        "isin": "JP90C000GKC6",
-        "name": "eMAXIS Slim 米国株式(S&P500)",
-        "nav": 44943.0,
-    },
-    "03312184": {
-        "isin": "JP90C000ENC5",
-        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
-        "nav": 45368.0,
-    },
-}
+FALLBACK_FUNDS: Final[Mapping[str, Mapping[str, Any]]] = MappingProxyType(
+    {
+        "03311187": MappingProxyType(
+            {
+                "isin": "JP90C000GKC6",
+                "name": "eMAXIS Slim 米国株式(S&P500)",
+                "nav": 44943.0,
+            }
+        ),
+        "0331124A": MappingProxyType(
+            {
+                "isin": "JP90C000R9Z9",
+                "name": "eMAXIS Slim 先進国株式(含む日本)<オール先進国>",
+                "nav": 14137.0,
+            }
+        ),
+        "0331A172": MappingProxyType(
+            {
+                "isin": "JP90C000END3",
+                "name": "eMAXIS Slim 先進国債券インデックス(除く日本)",
+                "nav": 15120.0,
+            }
+        ),
+        "8931217C": MappingProxyType(
+            {
+                "isin": "JP90C000FQR3",
+                "name": "SBI･全世界株式インデックス･ファンド（雪だるま）",
+                "nav": 35039.0,
+            }
+        ),
+        "03319172": MappingProxyType(
+            {
+                "isin": "JP90C000ENC5",
+                "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+                "nav": 45368.0,
+            }
+        ),
+        "2931113C": MappingProxyType(
+            {
+                "isin": "JP90C0009VE0",
+                "name": "ニッセイ外国株式インデックスファンド<購入・換金手数料なし>",
+                "nav": 59920.0,
+            }
+        ),
+        "0331418A": MappingProxyType(
+            {
+                "isin": "JP90C000H1T1",
+                "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+                "nav": 37859.0,
+            }
+        ),
+        "89311221": MappingProxyType(
+            {
+                "isin": "JP90C000MWH8",
+                "name": "SBI･V･全世界株式インデックス・ファンド",
+                "nav": 22683.0,
+            }
+        ),
+        "89311199": MappingProxyType(
+            {
+                "isin": "JP90C000J569",
+                "name": "SBI･V･S&P500インデックス・ファンド",
+                "nav": 41070.0,
+            }
+        ),
+        # 旧コードとの互換
+        "03311181": MappingProxyType(
+            {
+                "isin": "JP90C000H1T1",
+                "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+                "nav": 37859.0,
+            }
+        ),
+        "03314187": MappingProxyType(
+            {
+                "isin": "JP90C000GKC6",
+                "name": "eMAXIS Slim 米国株式(S&P500)",
+                "nav": 44943.0,
+            }
+        ),
+        "03312184": MappingProxyType(
+            {
+                "isin": "JP90C000ENC5",
+                "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+                "nav": 45368.0,
+            }
+        ),
+    }
+)
 
-FALLBACK_NAV_MAPPING: Final[dict[str, float]] = {
-    code: float(info["nav"]) for code, info in FALLBACK_FUNDS.items()
-}
+FALLBACK_NAV_MAPPING: Final[Mapping[str, float]] = MappingProxyType(
+    {code: float(info["nav"]) for code, info in FALLBACK_FUNDS.items()}
+)
 
 
 def parse_single_fund_csv_content(csv_bytes: bytes) -> tuple[str, float]:

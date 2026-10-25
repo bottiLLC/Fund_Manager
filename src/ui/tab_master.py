@@ -115,8 +115,9 @@ def render_master_tab(
 
         submitted_add = st.form_submit_button(
             "ポートフォリオに追加",
+            icon=":material/add:",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted_add:
@@ -180,7 +181,7 @@ def render_master_tab(
     edited_df = st.data_editor(
         edit_df,
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_order=[
             "delete",
@@ -250,17 +251,19 @@ def render_master_tab(
     with col_save:
         save_btn = st.button(
             "💾 変更を portfolio.csv に保存して再計算",
+            icon=":material/save:",
             type="primary" if delete_count == 0 else "secondary",
-            use_container_width=True,
+            width="stretch",
             key="save_portfolio_changes_btn",
             help="テーブル上で編集した内容を portfolio.csv に反映します。",
         )
     with col_delete:
         delete_btn = st.button(
             f"🗑️ チェックした銘柄 ({delete_count}件) を削除",
+            icon=":material/delete:",
             type="secondary",
             disabled=(delete_count == 0 or not confirm_delete),
-            use_container_width=True,
+            width="stretch",
             key="delete_portfolio_checked_btn",
             help="チェックした銘柄を削除します（事前確認チェックが必要です）。",
         )
@@ -372,8 +375,9 @@ def render_master_tab(
 
         btn_std_submit = st.form_submit_button(
             "📥 CSVを取り込んでポートフォリオに反映",
+            icon=":material/upload:",
             type="secondary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if btn_std_submit:

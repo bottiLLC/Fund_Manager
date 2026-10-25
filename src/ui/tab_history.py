@@ -82,6 +82,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             label="最新保有口数",
             value=f"{latest_row['units']:,.1f} 口",
             delta=f"{delta_units:+,.1f} 口 (初回比)" if len(df_history) > 1 else None,
+            border=True,
         )
     with col2:
         st.metric(
@@ -90,6 +91,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             delta=format_yen(delta_cost, prefix_sign=True) + " (初回比)"
             if len(df_history) > 1 and latest_row["cost_basis"] > 0
             else None,
+            border=True,
         )
     with col3:
         st.metric(
@@ -98,12 +100,14 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             delta=format_yen(delta_val, prefix_sign=True) + " (初回比)"
             if len(df_history) > 1
             else None,
+            border=True,
         )
     with col4:
         st.metric(
             label="最新基準価額",
             value=f"¥{latest_row['nav']:,.0f}",
             delta=f"{delta_nav:+,.0f} 円 (初回比)" if len(df_history) > 1 else None,
+            border=True,
         )
 
     st.divider()
@@ -159,7 +163,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
                 title=f"{selected_fund.name} - 資産推移（評価額面グラフ × 取得簿価折れ線）",
             )
         )
-        st.altair_chart(asset_layer_chart, use_container_width=True)
+        st.altair_chart(asset_layer_chart, width="stretch")
 
         # 基準価額 (NAV) 単体推移
         nav_chart = (
@@ -179,7 +183,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             )
             .properties(height=240, title=f"{selected_fund.name} - 基準価額 (円) 推移")
         )
-        st.altair_chart(nav_chart, use_container_width=True)
+        st.altair_chart(nav_chart, width="stretch")
 
     with tab_chart_cost:
         cost_chart = (
@@ -199,7 +203,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             )
             .properties(height=320, title=f"{selected_fund.name} - 取得簿価 (円) 推移")
         )
-        st.altair_chart(cost_chart, use_container_width=True)
+        st.altair_chart(cost_chart, width="stretch")
 
     with tab_chart_units:
         units_chart = (
@@ -219,7 +223,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
             )
             .properties(height=320, title=f"{selected_fund.name} - 保有口数 (口) 推移")
         )
-        st.altair_chart(units_chart, use_container_width=True)
+        st.altair_chart(units_chart, width="stretch")
 
     st.divider()
 
@@ -246,7 +250,7 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
     ]
     renamed_df = display_df[table_cols].rename(columns={"recorded_date": "記録日"})
 
-    st.dataframe(renamed_df, use_container_width=True, hide_index=True)
+    st.dataframe(renamed_df, width="stretch", hide_index=True)
 
     csv_data = df_history.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
@@ -255,4 +259,6 @@ def render_history_tab(history_repo: HistoryRepository) -> None:
         file_name=f"history_{selected_fund.code}_{selected_fund.holder}.csv",
         mime="text/csv",
         type="secondary",
+        icon=":material/download:",
+        width="stretch",
     )

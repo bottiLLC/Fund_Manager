@@ -7,9 +7,11 @@ import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
-_CONFIG_FILE = Path("./data/backup_config.json")
-_DEFAULT_BACKUP_DIR = Path("./backups")
+_ROOT: Final[Path] = Path(__file__).resolve().parent
+_CONFIG_FILE: Final[Path] = _ROOT / "data" / "backup_config.json"
+_DEFAULT_BACKUP_DIR: Final[Path] = _ROOT / "backups"
 
 
 def get_backup_dir() -> Path:
@@ -18,7 +20,7 @@ def get_backup_dir() -> Path:
             with open(_CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
                 custom_path = data.get("backup_dir")
-                if custom_path:
+                if isinstance(custom_path, str) and custom_path:
                     return Path(custom_path).resolve()
         except OSError, json.JSONDecodeError:
             pass
@@ -45,8 +47,10 @@ def set_backup_dir(target_dir: str) -> dict[str, str | bool]:
         }
 
 
-def run_backup(app_name: str = "app", source_dir: str = "./data") -> dict[str, str | bool]:
-    source_path = Path(source_dir).resolve()
+def run_backup(
+    app_name: str = "app", source_dir: Path | str | None = None
+) -> dict[str, str | bool]:
+    source_path = Path(source_dir).resolve() if source_dir else (_ROOT / "data").resolve()
 
     # 1. Interlock: Source presence
     if not source_path.exists() or not any(source_path.iterdir()):

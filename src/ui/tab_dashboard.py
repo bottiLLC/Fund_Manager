@@ -54,32 +54,36 @@ def render_dashboard_tab(
         )
 
     # 1. KPI メトリクス表示
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            label="総資産評価額",
-            value=format_yen(report.total_valuation),
-        )
-    with col2:
-        if report.total_profit_loss is not None:
-            pl_rate = (
-                (report.total_profit_loss / (report.total_valuation - report.total_profit_loss))
-                * 100.0
-                if (report.total_valuation - report.total_profit_loss) > 0
-                else 0.0
-            )
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.metric(
-                label="総含み損益",
-                value=format_yen(report.total_profit_loss, prefix_sign=True),
-                delta=f"{pl_rate:+.1f}%",
+                label="総資産評価額",
+                value=format_yen(report.total_valuation),
+                border=True,
             )
-        else:
-            st.metric(label="総含み損益", value="-")
-    with col3:
-        st.metric(
-            label="基準価額データ取得日",
-            value=report.as_of_date,
-        )
+        with col2:
+            if report.total_profit_loss is not None:
+                pl_rate = (
+                    (report.total_profit_loss / (report.total_valuation - report.total_profit_loss))
+                    * 100.0
+                    if (report.total_valuation - report.total_profit_loss) > 0
+                    else 0.0
+                )
+                st.metric(
+                    label="総含み損益",
+                    value=format_yen(report.total_profit_loss, prefix_sign=True),
+                    delta=f"{pl_rate:+.1f}%",
+                    border=True,
+                )
+            else:
+                st.metric(label="総含み損益", value="-", border=True)
+        with col3:
+            st.metric(
+                label="基準価額データ取得日",
+                value=report.as_of_date,
+                border=True,
+            )
 
     st.divider()
 
@@ -165,7 +169,7 @@ def render_dashboard_tab(
             combined_chart = (
                 alt.layer(area_chart, line_chart).resolve_scale(y="shared").properties(height=360)
             )
-            st.altair_chart(combined_chart, use_container_width=True)
+            st.altair_chart(combined_chart, width="stretch")
         elif latest_date:
             st.info("ℹ️ 指定された期間内の履歴データが存在しません。「全期間」を選択してください。")
         else:
@@ -209,7 +213,7 @@ def render_dashboard_tab(
             )
             .properties(height=300)
         )
-        st.altair_chart(pie_chart, use_container_width=True)
+        st.altair_chart(pie_chart, width="stretch")
 
     with table_col:
         st.dataframe(
@@ -219,7 +223,7 @@ def render_dashboard_tab(
                     "構成比率 (%)": "{:.1f}%",
                 }
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -262,6 +266,6 @@ def render_dashboard_tab(
                 "取得簿価 (円)": lambda x: f"¥{x:,.0f}" if pd.notna(x) else "-",
             }
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )

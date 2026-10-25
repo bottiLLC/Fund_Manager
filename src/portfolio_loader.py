@@ -5,69 +5,98 @@ from __future__ import annotations
 import csv
 import io
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from src.models import PortfolioItem
 
-CANONICAL_PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
-    "03311187": {"isin": "JP90C000GKC6", "name": "eMAXIS Slim 米国株式(S&P500)"},
-    "0331124A": {
-        "isin": "JP90C000R9Z9",
-        "name": "eMAXIS Slim 先進国株式(含む日本)<オール先進国>",
-    },
-    "0331A172": {
-        "isin": "JP90C000END3",
-        "name": "eMAXIS Slim 先進国債券インデックス(除く日本)",
-    },
-    "8931217C": {
-        "isin": "JP90C000FQR3",
-        "name": "SBI･全世界株式インデックス･ファンド（雪だるま）",
-    },
-    "03319172": {
-        "isin": "JP90C000ENC5",
-        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
-    },
-    "2931113C": {
-        "isin": "JP90C0009VE0",
-        "name": "ニッセイ外国株式インデックスファンド<購入・換金手数料なし>",
-    },
-    "0331418A": {
-        "isin": "JP90C000H1T1",
-        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
-    },
-    "89311221": {
-        "isin": "JP90C000MWH8",
-        "name": "SBI･V･全世界株式インデックス・ファンド",
-    },
-    "89311199": {
-        "isin": "JP90C000J569",
-        "name": "SBI･V･S&P500インデックス・ファンド",
-    },
-}
+CANONICAL_PRESET_FUNDS: Final[Mapping[str, Mapping[str, str]]] = MappingProxyType(
+    {
+        "03311187": MappingProxyType(
+            {"isin": "JP90C000GKC6", "name": "eMAXIS Slim 米国株式(S&P500)"}
+        ),
+        "0331124A": MappingProxyType(
+            {
+                "isin": "JP90C000R9Z9",
+                "name": "eMAXIS Slim 先進国株式(含む日本)<オール先進国>",
+            }
+        ),
+        "0331A172": MappingProxyType(
+            {
+                "isin": "JP90C000END3",
+                "name": "eMAXIS Slim 先進国債券インデックス(除く日本)",
+            }
+        ),
+        "8931217C": MappingProxyType(
+            {
+                "isin": "JP90C000FQR3",
+                "name": "SBI･全世界株式インデックス･ファンド（雪だるま）",
+            }
+        ),
+        "03319172": MappingProxyType(
+            {
+                "isin": "JP90C000ENC5",
+                "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+            }
+        ),
+        "2931113C": MappingProxyType(
+            {
+                "isin": "JP90C0009VE0",
+                "name": "ニッセイ外国株式インデックスファンド<購入・換金手数料なし>",
+            }
+        ),
+        "0331418A": MappingProxyType(
+            {
+                "isin": "JP90C000H1T1",
+                "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+            }
+        ),
+        "89311221": MappingProxyType(
+            {
+                "isin": "JP90C000MWH8",
+                "name": "SBI･V･全世界株式インデックス・ファンド",
+            }
+        ),
+        "89311199": MappingProxyType(
+            {
+                "isin": "JP90C000J569",
+                "name": "SBI･V･S&P500インデックス・ファンド",
+            }
+        ),
+    }
+)
 
-LEGACY_CODE_TO_REAL_CODE: Final[dict[str, str]] = {
-    "03311181": "0331418A",
-    "03314187": "03311187",
-    "03312184": "03319172",
-}
+LEGACY_CODE_TO_REAL_CODE: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "03311181": "0331418A",
+        "03314187": "03311187",
+        "03312184": "03319172",
+    }
+)
 
-PRESET_FUNDS: Final[dict[str, dict[str, str]]] = {
-    **CANONICAL_PRESET_FUNDS,
-    # 旧サンプルコードの後方互換マッピング
-    "03311181": {
-        "isin": "JP90C000H1T1",
-        "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
-    },
-    "03314187": {
-        "isin": "JP90C000GKC6",
-        "name": "eMAXIS Slim 米国株式(S&P500)",
-    },
-    "03312184": {
-        "isin": "JP90C000ENC5",
-        "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
-    },
-}
+PRESET_FUNDS: Final[Mapping[str, Mapping[str, str]]] = MappingProxyType(
+    {
+        **dict(CANONICAL_PRESET_FUNDS),
+        # 旧サンプルコードの後方互換マッピング
+        "03311181": MappingProxyType(
+            {
+                "isin": "JP90C000H1T1",
+                "name": "eMAXIS Slim 全世界株式(オール・カントリー)",
+            }
+        ),
+        "03314187": MappingProxyType(
+            {"isin": "JP90C000GKC6", "name": "eMAXIS Slim 米国株式(S&P500)"}
+        ),
+        "03312184": MappingProxyType(
+            {
+                "isin": "JP90C000ENC5",
+                "name": "eMAXIS Slim 先進国株式インデックス(除く日本)",
+            }
+        ),
+    }
+)
 
 DEFAULT_PORTFOLIO_HEADER: Final[tuple[str, ...]] = (
     "holder",
@@ -78,37 +107,39 @@ DEFAULT_PORTFOLIO_HEADER: Final[tuple[str, ...]] = (
     "cost_basis",
 )
 
-COLUMN_ALIASES: Final[dict[str, str]] = {
-    "holder": "holder",
-    "法人/個人": "holder",
-    "法人・個人": "holder",
-    "区分": "holder",
-    "名義": "holder",
-    "所有者": "holder",
-    "保有者": "holder",
-    "account": "account",
-    "口座": "account",
-    "口座名": "account",
-    "口座種別": "account",
-    "格納口座": "account",
-    "code": "code",
-    "協会コード": "code",
-    "ファンドコード": "code",
-    "isin": "isin",
-    "isinコード": "isin",
-    "isin_code": "isin",
-    "国際証券コード": "isin",
-    "name": "name",
-    "銘柄名": "name",
-    "銘柄略称": "name",
-    "ファンド名": "name",
-    "units": "units",
-    "保有口数": "units",
-    "口数": "units",
-    "cost_basis": "cost_basis",
-    "取得簿価": "cost_basis",
-    "簿価": "cost_basis",
-}
+COLUMN_ALIASES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "holder": "holder",
+        "法人/個人": "holder",
+        "法人・個人": "holder",
+        "区分": "holder",
+        "名義": "holder",
+        "所有者": "holder",
+        "保有者": "holder",
+        "account": "account",
+        "口座": "account",
+        "口座名": "account",
+        "口座種別": "account",
+        "格納口座": "account",
+        "code": "code",
+        "協会コード": "code",
+        "ファンドコード": "code",
+        "isin": "isin",
+        "isinコード": "isin",
+        "isin_code": "isin",
+        "国際証券コード": "isin",
+        "name": "name",
+        "銘柄名": "name",
+        "銘柄略称": "name",
+        "ファンド名": "name",
+        "units": "units",
+        "保有口数": "units",
+        "口数": "units",
+        "cost_basis": "cost_basis",
+        "取得簿価": "cost_basis",
+        "簿価": "cost_basis",
+    }
+)
 
 DEFAULT_SAMPLE_PORTFOLIO: Final[str] = (
     "holder,account,code,isin,units,cost_basis\n"
