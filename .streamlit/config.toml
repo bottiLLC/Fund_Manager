@@ -1,0 +1,8 @@
+[theme]
+base = "light"
+primaryColor = "#ff4b4b"
+paddingTop = "1.5rem"
+paddingBottom = "2rem"
+
+[client]
+toolbarMode = "minimal"
