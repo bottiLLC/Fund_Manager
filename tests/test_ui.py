@@ -187,6 +187,8 @@ def test_render_dashboard_tab_populated() -> None:
         mock_info.assert_called_once()
         assert "(Cached)" in mock_info.call_args[0][0]
         assert mock_metric.call_count == 3
+        metric_labels = [c.kwargs.get("label") for c in mock_metric.call_args_list]
+        assert "基準価額のデータ基準日" in metric_labels
         assert mock_df.call_count == 2
 
 

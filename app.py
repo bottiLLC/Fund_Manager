@@ -97,7 +97,7 @@ def main() -> None:
             else:
                 st.session_state["refresh_feedback"] = (
                     "success",
-                    "キャッシュをクリアし、最新データを再取得しました。",
+                    f"キャッシュをクリアし、最新データを再取得しました。（データ基準日: {as_of_date}）",
                 )
             st.rerun()
 

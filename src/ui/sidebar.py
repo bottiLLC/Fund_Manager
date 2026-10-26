@@ -23,7 +23,10 @@ def render_app_sidebar(project_root: Path) -> None:
             icon=":material/refresh:",
             type="secondary",
             width="stretch",
-            help="投信協会のWebキャッシュをクリアし、最新の基準価額を再フェッチします。",
+            help=(
+                "投信協会のWebキャッシュをクリアし、最新の基準価額を再フェッチします。"
+                "（※当日の最新値は平日19:00〜21:30頃に投信協会側で更新されます）"
+            ),
         )
         if force_refresh:
             st.cache_data.clear()

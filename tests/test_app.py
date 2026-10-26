@@ -31,6 +31,10 @@ def test_app_force_refresh_button() -> None:
     assert len(refresh_buttons) == 1
     refresh_buttons[0].click().run()
     assert not at.exception
+    successes = [s.value for s in at.sidebar.success]
+    assert any(
+        "キャッシュをクリアし、最新データを再取得しました。（データ基準日:" in s for s in successes
+    )
 
 
 def test_app_backup_button() -> None:

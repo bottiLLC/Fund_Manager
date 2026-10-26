@@ -80,8 +80,12 @@ def render_dashboard_tab(
                 st.metric(label="総含み損益", value="-", border=True)
         with col3:
             st.metric(
-                label="基準価額データ取得日",
+                label="基準価額のデータ基準日",
                 value=report.as_of_date,
+                help=(
+                    "投信協会が公表している基準価額の算出基準日です。"
+                    "土日祝を除く平日の夜間（19:00〜21:30頃）に当日付データへと更新されます。"
+                ),
                 border=True,
             )
 
