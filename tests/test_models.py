@@ -6,10 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from src.models import (
+    AssetGenre,
     FundSnapshotRecord,
     HoldingEvaluation,
     PortfolioItem,
     PortfolioReport,
+    RebalanceConfig,
     TankSummary,
 )
 
@@ -251,3 +253,28 @@ def test_fund_snapshot_record_validation_error() -> None:
             nav=10000.0,
             valuation=100,
         )
+
+
+def test_rebalance_config_validation() -> None:
+    """RebalanceConfig のデフォルト値、コード正規化、および不正値バリデーションを検証する。"""
+    default_cfg = RebalanceConfig()
+    assert default_cfg.target_equity_ratio == 60.0
+    assert default_cfg.target_bond_ratio == 40.0
+    assert default_cfg.fund_genres == {}
+
+    cfg = RebalanceConfig(
+        target_equity_ratio=65.44,
+        fund_genres={" 0331418a ": AssetGenre.EQUITY, "0331a172": AssetGenre.BOND},
+    )
+    assert cfg.target_equity_ratio == 65.4
+    assert cfg.target_bond_ratio == 34.6
+    assert cfg.fund_genres == {"0331418A": AssetGenre.EQUITY, "0331A172": AssetGenre.BOND}
+
+    with pytest.raises(ValidationError):
+        RebalanceConfig(target_equity_ratio=-0.1)
+
+    with pytest.raises(ValidationError):
+        RebalanceConfig(target_equity_ratio=100.1)
+
+    with pytest.raises(ValidationError, match="ファンドコードは8桁の半角英数字"):
+        RebalanceConfig(fund_genres={"INVALID": AssetGenre.EQUITY})

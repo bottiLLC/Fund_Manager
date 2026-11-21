@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Final
 
-from src.models import PortfolioReport
+from src.models import PortfolioReport, RebalanceSummary
 
 SEPARATOR_LINE: Final[str] = "═" * 86
 THIN_SEPARATOR_LINE: Final[str] = "─" * 86
@@ -88,11 +88,15 @@ def format_rate(rate: float | None) -> str:
     return f"({rate:.1f}%)"
 
 
-def format_cli_report(report: PortfolioReport) -> str:
+def format_cli_report(
+    report: PortfolioReport,
+    rebalance_summary: RebalanceSummary | None = None,
+) -> str:
     """CLI向けダッシュボード文字列を組み立てる。
 
     Args:
         report: 集計済みポートフォリオレポート。
+        rebalance_summary: リバランス計算サマリー（任意）。
 
     Returns:
         ターミナル出力用の整形テキスト。
@@ -137,6 +141,59 @@ def format_cli_report(report: PortfolioReport) -> str:
             + pad_display(pl_str, 16, "right")
         )
         lines.append(tank_line)
+
+    if rebalance_summary is not None and rebalance_summary.total_valuation > 0:
+        lines.append(THIN_SEPARATOR_LINE)
+        lines.append("【資産クラス配分 & リバランス試算】")
+        lines.append(
+            f"  基準比率設定   : 株式 {rebalance_summary.target_equity_ratio:.1f}% / 債券 {rebalance_summary.target_bond_ratio:.1f}%"
+        )
+        rebal_header = (
+            pad_display("ジャンル", 8)
+            + " | "
+            + pad_display("評価額合計", 14, "right")
+            + " | "
+            + pad_display("現在比率", 20, "left")
+            + " | "
+            + pad_display("基準比率", 8, "right")
+            + " | "
+            + pad_display("売買提案 (総額不変)", 20, "right")
+        )
+        lines.append(rebal_header)
+        lines.append(THIN_SEPARATOR_LINE)
+        for alloc in (rebalance_summary.equity, rebalance_summary.bond):
+            trade_label = (
+                f"{alloc.direction.value} {format_yen(abs(alloc.trade_amount))}"
+                if alloc.trade_amount != 0
+                else "維持 (¥0)"
+            )
+            rebal_line = (
+                pad_display(alloc.genre.value, 8)
+                + " | "
+                + pad_display(format_yen(alloc.valuation_total), 14, "right")
+                + " | "
+                + pad_display(alloc.bar, 20, "left")
+                + " | "
+                + pad_display(f"{alloc.target_ratio:.1f}%", 8, "right")
+                + " | "
+                + pad_display(trade_label, 20, "right")
+            )
+            lines.append(rebal_line)
+
+        if not rebalance_summary.no_sell_achievable:
+            lines.append(
+                "  ノーセル目安   : 基準比率0%の資産を保有しているため買い増しのみでは達成不可"
+            )
+        elif (
+            rebalance_summary.no_sell_buy_genre is None or not rebalance_summary.no_sell_buy_amount
+        ):
+            lines.append("  ノーセル目安   : 売買不要（基準比率と一致）")
+        else:
+            lines.append(
+                f"  ノーセル目安   : {rebalance_summary.no_sell_buy_genre.value}を "
+                f"{format_yen(rebalance_summary.no_sell_buy_amount)} 買い増し"
+                f"（買い増し後総資産: {format_yen(rebalance_summary.no_sell_post_total)}）"
+            )
 
     lines.append(THIN_SEPARATOR_LINE)
     lines.append("【保有銘柄明細テーブル】")

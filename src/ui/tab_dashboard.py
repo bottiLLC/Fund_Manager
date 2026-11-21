@@ -8,20 +8,23 @@ import streamlit as st
 
 from src.formatter import format_rate, format_yen
 from src.history_db import PERIOD_OPTIONS, HistoryRepository, calculate_start_date
-from src.models import PortfolioReport
+from src.models import PortfolioReport, RebalanceSummary
 
 
 def render_dashboard_tab(
     report: PortfolioReport,
     history_repo: HistoryRepository | None = None,
+    rebalance_summary: RebalanceSummary | None = None,
 ) -> None:
     """ポートフォリオ評価ダッシュボードタブを描画する。
 
-    KPIメトリクス、総資産推移積み上げ面グラフ（取得価額折れ線重畳）、口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
+    KPIメトリクス、株式/債券の現在比率、総資産推移積み上げ面グラフ（取得価額折れ線重畳）、
+    口座別配分ドーナツチャート、および保有銘柄明細テーブルを表示する。
 
     Args:
         report: ポートフォリオ集計・評価レポート。
         history_repo: ポートフォリオ履歴データベースリポジトリ。
+        rebalance_summary: 株式・債券の現在比率表示用サマリー（任意）。
     """
 
     if not report.holdings:
@@ -88,6 +91,71 @@ def render_dashboard_tab(
                 ),
                 border=True,
             )
+
+    if rebalance_summary is not None and rebalance_summary.total_valuation > 0:
+        eq = rebalance_summary.equity
+        bd = rebalance_summary.bond
+        with st.container(border=True):
+            st.markdown("##### ⚖️ 資産クラス比率（株式 / 債券）")
+            col_eq, col_bd = st.columns(2)
+            with col_eq:
+                st.metric(
+                    label="株式（現在比率）",
+                    value=f"{eq.current_ratio:.1f}%",
+                    delta=format_yen(eq.valuation_total),
+                    delta_color="off",
+                    border=True,
+                )
+            with col_bd:
+                st.metric(
+                    label="債券（現在比率）",
+                    value=f"{bd.current_ratio:.1f}%",
+                    delta=format_yen(bd.valuation_total),
+                    delta_color="off",
+                    border=True,
+                )
+
+            genre_ratio_df = pd.DataFrame(
+                [
+                    {
+                        "区分": "現在比率",
+                        "ジャンル": eq.genre.value,
+                        "比率 (%)": eq.current_ratio,
+                        "評価額 (円)": eq.valuation_total,
+                    },
+                    {
+                        "区分": "現在比率",
+                        "ジャンル": bd.genre.value,
+                        "比率 (%)": bd.current_ratio,
+                        "評価額 (円)": bd.valuation_total,
+                    },
+                ]
+            )
+            ratio_bar = (
+                alt.Chart(genre_ratio_df)
+                .mark_bar(size=24)
+                .encode(
+                    x=alt.X(
+                        "比率 (%):Q",
+                        stack="normalize",
+                        axis=alt.Axis(format="%", title=None),
+                    ),
+                    y=alt.Y("区分:N", title=None, axis=None),
+                    color=alt.Color(
+                        "ジャンル:N",
+                        scale=alt.Scale(domain=["株式", "債券"], range=["#1f77b4", "#2ca02c"]),
+                        legend=alt.Legend(orient="bottom", title=None),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("ジャンル:N", title="ジャンル"),
+                        alt.Tooltip("比率 (%):Q", title="現在比率 (%)", format=".1f"),
+                        alt.Tooltip("評価額 (円):Q", title="評価額 (円)", format=",.0f"),
+                    ],
+                )
+                .properties(height=68)
+            )
+            st.altair_chart(ratio_bar, width="stretch")
+            st.caption("目標比率の設定や売買リバランス試算は「⚖️ リバランス」タブで行えます。")
 
     st.divider()
 
@@ -236,6 +304,12 @@ def render_dashboard_tab(
     # 3. 保有銘柄明細テーブル
     st.subheader("📋 保有銘柄明細テーブル")
 
+    genre_by_code = (
+        {f.code: f.genre.value for f in rebalance_summary.fund_summaries}
+        if rebalance_summary is not None
+        else {}
+    )
+
     detail_rows = []
     for h in report.holdings:
         pl_str = (
@@ -245,20 +319,21 @@ def render_dashboard_tab(
         )
         units_display = f"{h.effective_units:,.1f}"
 
-        detail_rows.append(
-            {
-                "法人/個人": h.item.holder,
-                "格納口座": h.item.account,
-                "銘柄名": h.item.name,
-                "協会コード": h.item.code,
-                "ISINコード": h.item.isin,
-                "基準価額 (円)": h.nav,
-                "保有口数": units_display,
-                "評価額 (円)": h.valuation,
-                "取得簿価 (円)": h.item.cost_basis if h.item.cost_basis > 0 else None,
-                "含み損益": pl_str,
-            }
-        )
+        row_dict: dict[str, object] = {
+            "法人/個人": h.item.holder,
+            "格納口座": h.item.account,
+            "銘柄名": h.item.name,
+            "協会コード": h.item.code,
+            "ISINコード": h.item.isin,
+            "基準価額 (円)": h.nav,
+            "保有口数": units_display,
+            "評価額 (円)": h.valuation,
+            "取得簿価 (円)": h.item.cost_basis if h.item.cost_basis > 0 else None,
+            "含み損益": pl_str,
+        }
+        if rebalance_summary is not None:
+            row_dict["ジャンル"] = genre_by_code.get(h.item.code, "-")
+        detail_rows.append(row_dict)
 
     detail_df = pd.DataFrame(detail_rows)
 

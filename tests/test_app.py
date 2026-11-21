@@ -84,11 +84,25 @@ def test_app_file_uploader_rendered() -> None:
 
 
 def test_app_tabs_rendered() -> None:
-    """ダッシュボード、ファンド推移、およびマスター管理タブ（推移内サブタブ含む計6件）が正しく描画されることを検証する。"""
+    """ダッシュボード、リバランス、ファンド推移、およびマスター管理タブ（推移内サブタブ含む計7件）が正しく描画されることを検証する。"""
     at = AppTest.from_file(_APP_PATH, default_timeout=30)
     at.run()
     assert not at.exception
-    assert len(at.tabs) == 6
+    assert len(at.tabs) == 7
+
+
+def test_app_rebalance_tab_controls() -> None:
+    """リバランスタブの基準比率スライダーおよび保存ボタンが描画されることを検証する。"""
+    at = AppTest.from_file(_APP_PATH, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    sliders = at.slider
+    assert any("株式の基準比率" in s.label for s in sliders)
+
+    buttons = at.button
+    assert any("基準比率を保存" in b.label for b in buttons)
+    assert any("銘柄ジャンル設定を保存" in b.label for b in buttons)
 
 
 def test_app_sbi_file_uploader_rendered() -> None:

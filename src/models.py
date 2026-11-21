@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -144,3 +145,120 @@ class FundSnapshotRecord(BaseModel):
     def identity_key(self) -> str:
         """4要素完全一致による同一ファンド識別キー。"""
         return f"{self.holder}__{self.account}__{self.code}__{self.isin}"
+
+
+class AssetGenre(StrEnum):
+    """リバランス計算用の資産ジャンル区分。"""
+
+    EQUITY = "株式"
+    BOND = "債券"
+
+
+ASSET_GENRE_OPTIONS: Final[tuple[AssetGenre, ...]] = (
+    AssetGenre.EQUITY,
+    AssetGenre.BOND,
+)
+
+
+class TradeDirection(StrEnum):
+    """リバランス時の売買方向区分。"""
+
+    BUY = "購入"
+    SELL = "売却"
+    HOLD = "維持"
+
+
+class RebalanceConfig(BaseModel):
+    """リバランス基準比率および銘柄別ジャンル設定モデル。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    target_equity_ratio: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=100.0,
+        description="株式の基準比率（%）",
+    )
+    fund_genres: dict[str, AssetGenre] = Field(
+        default_factory=dict,
+        description="銘柄コード -> 資産ジャンルマッピング",
+    )
+
+    @field_validator("target_equity_ratio")
+    @classmethod
+    def round_target_equity_ratio(cls, v: float) -> float:
+        return round(float(v), 1)
+
+    @field_validator("fund_genres")
+    @classmethod
+    def validate_fund_genres(cls, v: dict[str, AssetGenre]) -> dict[str, AssetGenre]:
+        normalized: dict[str, AssetGenre] = {}
+        for code, genre in v.items():
+            cleaned_code = code.strip().upper()
+            if not FUND_CODE_REGEX.match(cleaned_code):
+                msg = f"ファンドコードは8桁の半角英数字（大文字）である必要があります: {code}"
+                raise ValueError(msg)
+            normalized[cleaned_code] = AssetGenre(genre)
+        return normalized
+
+    @property
+    def target_bond_ratio(self) -> float:
+        """債券の基準比率（%）。"""
+        return round(100.0 - self.target_equity_ratio, 1)
+
+
+class GenreAllocation(BaseModel):
+    """ジャンル（株式・債券）ごとの評価額・比率・売買提案。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    genre: AssetGenre
+    valuation_total: int = Field(..., ge=0, description="ジャンル別評価額合計（円）")
+    current_ratio: float = Field(..., ge=0.0, le=100.0, description="現在の構成比率（%）")
+    target_ratio: float = Field(..., ge=0.0, le=100.0, description="基準構成比率（%）")
+    target_valuation: int = Field(..., ge=0, description="目標評価額（円）")
+    ratio_diff: float = Field(..., description="基準比率との乖離（現在比率 - 基準比率, pt）")
+    trade_amount: int = Field(
+        ..., description="総額不変時の売買金額（正: 購入, 負: 売却, 0: 維持）"
+    )
+    direction: TradeDirection
+    bar: str = Field(..., description="テキストプログレスバー")
+
+
+class FundGenreSummary(BaseModel):
+    """銘柄コード単位のジャンル分類および評価額サマリー。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    name: str
+    genre: AssetGenre
+    is_configured: bool
+    valuation_total: int = Field(..., ge=0)
+    ratio: float = Field(..., ge=0.0, le=100.0)
+    holding_count: int = Field(..., ge=1)
+
+
+class RebalanceSummary(BaseModel):
+    """ポートフォリオ全体のリバランス集計および売買提案結果。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_valuation: int = Field(..., ge=0)
+    target_equity_ratio: float = Field(..., ge=0.0, le=100.0)
+    target_bond_ratio: float = Field(..., ge=0.0, le=100.0)
+    equity: GenreAllocation
+    bond: GenreAllocation
+    fund_summaries: list[FundGenreSummary] = Field(default_factory=list)
+    no_sell_buy_genre: AssetGenre | None = Field(
+        default=None, description="売却なし買い増し時の購入対象ジャンル"
+    )
+    no_sell_buy_amount: int | None = Field(
+        default=None, description="売却なし買い増し時の必要金額（円、達成不可時はNone）"
+    )
+    no_sell_achievable: bool = Field(
+        default=True, description="売却なしの買い増しのみで基準比率へ到達可能か"
+    )
+    no_sell_post_total: int | None = Field(
+        default=None, description="買い増し後の総資産評価額（円、達成不可時はNone）"
+    )

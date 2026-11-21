@@ -23,6 +23,11 @@ from src.formatter import format_cli_report
 from src.models import HOLDER_OPTIONS, PortfolioItem
 from src.nav_fetcher import fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv, save_portfolio_csv
+from src.rebalancer import (
+    DEFAULT_REBALANCE_CONFIG_FILE,
+    calculate_rebalance_summary,
+    load_rebalance_config,
+)
 from src.sbi_importer import (
     MergeMode,
     decode_csv_bytes,
@@ -153,7 +158,10 @@ def main() -> int:
         fallback_funds=fetch_result.fallback_funds,
     )
 
-    output_text = format_cli_report(report)
+    rebalance_config = load_rebalance_config(_ROOT / "data" / DEFAULT_REBALANCE_CONFIG_FILE)
+    rebalance_summary = calculate_rebalance_summary(report=report, config=rebalance_config)
+
+    output_text = format_cli_report(report, rebalance_summary=rebalance_summary)
     print(output_text)
     return 0
 

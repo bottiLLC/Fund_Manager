@@ -8,7 +8,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.history_db import HistoryRepository
-from src.models import HoldingEvaluation, PortfolioItem, PortfolioReport, TankSummary
+from src.models import (
+    AssetGenre,
+    HoldingEvaluation,
+    PortfolioItem,
+    PortfolioReport,
+    RebalanceConfig,
+    TankSummary,
+)
+from src.rebalancer import calculate_rebalance_summary
 from src.sbi_importer import ImportCandidate, SbiRawRecord
 from src.ui.header import render_app_header
 from src.ui.sbi_wizard import render_sbi_import_section
@@ -16,6 +24,7 @@ from src.ui.sidebar import render_app_sidebar
 from src.ui.tab_dashboard import render_dashboard_tab
 from src.ui.tab_history import render_history_tab
 from src.ui.tab_master import render_master_tab
+from src.ui.tab_rebalance import render_rebalance_tab
 
 
 def mock_columns(spec: object, *_: object, **__: object) -> list[MagicMock]:
@@ -1224,3 +1233,311 @@ def test_render_history_tab_none_selection_and_empty_df(tmp_path: Path) -> None:
     ):
         render_history_tab(history_repo=repo)
         mock_warn.assert_called_once()
+
+
+def test_render_dashboard_tab_with_rebalance_summary() -> None:
+    """ダッシュボードに現在比率カードおよび明細ジャンル列のみが表示されることを検証する。"""
+    eq_item = PortfolioItem(
+        holder="個人",
+        account="特定預り",
+        code="0331418A",
+        isin="JP90C000H1T1",
+        name="全世界株",
+        units=10000.0,
+        cost_basis=500_000,
+    )
+    bd_item = PortfolioItem(
+        holder="個人",
+        account="特定預り",
+        code="0331A172",
+        isin="JP90C000END3",
+        name="先進国債券",
+        units=10000.0,
+        cost_basis=200_000,
+    )
+    holdings = [
+        HoldingEvaluation(
+            item=eq_item,
+            nav=10000.0,
+            valuation=800_000,
+            profit_loss=300_000,
+            profit_loss_rate=60.0,
+            effective_units=10000.0,
+        ),
+        HoldingEvaluation(
+            item=bd_item,
+            nav=10000.0,
+            valuation=200_000,
+            profit_loss=0,
+            profit_loss_rate=0.0,
+            effective_units=10000.0,
+        ),
+    ]
+    tank = TankSummary(
+        account="特定預り",
+        valuation_total=1_000_000,
+        ratio=100.0,
+        bar="[██████████] 100.0%",
+        profit_loss_total=300_000,
+    )
+    report = PortfolioReport(
+        as_of_date="2026-10-23",
+        holdings=holdings,
+        tank_summaries=[tank],
+        total_valuation=1_000_000,
+        total_profit_loss=300_000,
+    )
+    summary = calculate_rebalance_summary(report, RebalanceConfig(target_equity_ratio=60.0))
+
+    with (
+        patch("streamlit.container"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.metric") as mock_metric,
+        patch("streamlit.markdown"),
+        patch("streamlit.caption"),
+        patch("streamlit.divider"),
+        patch("streamlit.subheader"),
+        patch("streamlit.altair_chart") as mock_chart,
+        patch("streamlit.dataframe") as mock_df,
+    ):
+        render_dashboard_tab(report, rebalance_summary=summary)
+        # 3 KPI + 株式・債券現在比率 2件 = 5件
+        assert mock_metric.call_count == 5
+        labels = [c.kwargs.get("label") for c in mock_metric.call_args_list]
+        assert "株式（現在比率）" in labels
+        assert "債券（現在比率）" in labels
+        # 現在比率バー + ドーナツチャート = 2回
+        assert mock_chart.call_count == 2
+        # 明細テーブルにジャンル列が含まれること
+        detail_df_styled = mock_df.call_args_list[1].args[0]
+        assert "ジャンル" in detail_df_styled.data.columns
+
+
+def test_render_rebalance_tab_empty(tmp_path: Path) -> None:
+    """保有データが空の場合に案内メッセージが表示されることを検証する。"""
+    report = PortfolioReport(
+        as_of_date="2026-10-23",
+        holdings=[],
+        tank_summaries=[],
+        total_valuation=0,
+        total_profit_loss=None,
+    )
+    with patch("streamlit.info") as mock_info:
+        render_rebalance_tab(
+            report=report,
+            config=RebalanceConfig(),
+            config_path=tmp_path / "rebalance_config.json",
+        )
+        mock_info.assert_called_once()
+        assert "現在、保有銘柄が登録されていません" in mock_info.call_args[0][0]
+
+
+@pytest.mark.parametrize(
+    ("eq_val", "bd_val", "slider_val", "expected_msg"),
+    [
+        (8_000_000, 2_000_000, 60.0, "売却"),
+        (2_000_000, 8_000_000, 80.0, "購入"),
+        (6_000_000, 4_000_000, 60.0, "基準比率と一致"),
+        (8_000_000, 2_000_000, 100.0, "目標比率へ到達できません"),
+    ],
+)
+def test_render_rebalance_tab_scenarios(
+    tmp_path: Path,
+    eq_val: int,
+    bd_val: int,
+    slider_val: float,
+    expected_msg: str,
+) -> None:
+    """リバランスタブの株式超過・債券超過・完全一致・ノーセル不可の各シナリオ描画を検証する。"""
+    import pandas as pd
+
+    report = PortfolioReport(
+        as_of_date="2026-10-23",
+        total_valuation=eq_val + bd_val,
+        total_profit_loss=None,
+        tank_summaries=[],
+        holdings=[
+            HoldingEvaluation(
+                item=PortfolioItem(
+                    account="特定預り", code="0331418A", name="全世界株", units=1000.0
+                ),
+                nav=float(eq_val),
+                effective_units=1000.0,
+                valuation=eq_val,
+            ),
+            HoldingEvaluation(
+                item=PortfolioItem(
+                    account="特定預り", code="0331A172", name="先進国債券", units=1000.0
+                ),
+                nav=float(bd_val),
+                effective_units=1000.0,
+                valuation=bd_val,
+            ),
+        ],
+    )
+    edited_df = pd.DataFrame(
+        [
+            {
+                "code": "0331418A",
+                "name": "全世界株",
+                "holding_count": 1,
+                "valuation_total": eq_val,
+                "genre": "株式",
+                "status": "自動推定",
+            },
+            {
+                "code": "0331A172",
+                "name": "先進国債券",
+                "holding_count": 1,
+                "valuation_total": bd_val,
+                "genre": "債券",
+                "status": "自動推定",
+            },
+        ]
+    )
+    messages: list[str] = []
+
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.container"),
+        patch("streamlit.markdown"),
+        patch("streamlit.caption"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.slider", return_value=slider_val),
+        patch("streamlit.metric"),
+        patch("streamlit.button", side_effect=[False, False]),
+        patch("streamlit.info", side_effect=lambda m: messages.append(str(m))),
+        patch("streamlit.success", side_effect=lambda m: messages.append(str(m))),
+        patch("streamlit.warning", side_effect=lambda m: messages.append(str(m))),
+        patch("streamlit.divider"),
+        patch("streamlit.altair_chart"),
+        patch("streamlit.dataframe"),
+        patch("streamlit.data_editor", return_value=edited_df),
+    ):
+        render_rebalance_tab(
+            report=report,
+            config=RebalanceConfig(target_equity_ratio=60.0),
+            config_path=tmp_path / "rebalance_config.json",
+        )
+        assert any(expected_msg in m for m in messages)
+
+
+def test_render_rebalance_tab_save_actions_and_errors(tmp_path: Path) -> None:
+    """基準比率保存および銘柄ジャンル保存の正常系・例外系を検証する。"""
+    import pandas as pd
+
+    from src.rebalancer import load_rebalance_config
+
+    cfg_path = tmp_path / "rebalance_config.json"
+    report = PortfolioReport(
+        as_of_date="2026-10-23",
+        total_valuation=1_000_000,
+        total_profit_loss=None,
+        tank_summaries=[],
+        holdings=[
+            HoldingEvaluation(
+                item=PortfolioItem(
+                    account="特定預り", code="0331418A", name="全世界株", units=1000.0
+                ),
+                nav=10000.0,
+                effective_units=1000.0,
+                valuation=600_000,
+            ),
+            HoldingEvaluation(
+                item=PortfolioItem(
+                    account="特定預り", code="0331A172", name="先進国債券", units=1000.0
+                ),
+                nav=10000.0,
+                effective_units=1000.0,
+                valuation=400_000,
+            ),
+        ],
+    )
+    edited_df = pd.DataFrame(
+        [
+            {"code": "0331418A", "genre": "債券"},
+            {"code": "0331A172", "genre": "株式"},
+        ]
+    )
+
+    # 1. 基準比率保存の成功
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.container"),
+        patch("streamlit.markdown"),
+        patch("streamlit.caption"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.slider", return_value=75.0),
+        patch("streamlit.metric"),
+        patch("streamlit.button", side_effect=[True, False]),
+        patch("streamlit.toast") as mock_toast,
+        patch("streamlit.rerun") as mock_rerun,
+        patch("streamlit.info"),
+        patch("streamlit.success"),
+        patch("streamlit.divider"),
+        patch("streamlit.altair_chart"),
+        patch("streamlit.dataframe"),
+        patch("streamlit.data_editor", return_value=edited_df),
+    ):
+        render_rebalance_tab(report=report, config=RebalanceConfig(), config_path=cfg_path)
+        mock_toast.assert_called_once()
+        mock_rerun.assert_called_once()
+
+    assert load_rebalance_config(cfg_path).target_equity_ratio == 75.0
+
+    # 2. 銘柄ジャンル保存の成功
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.container"),
+        patch("streamlit.markdown"),
+        patch("streamlit.caption"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.slider", return_value=75.0),
+        patch("streamlit.metric"),
+        patch("streamlit.button", side_effect=[False, True]),
+        patch("streamlit.toast") as mock_toast2,
+        patch("streamlit.rerun") as mock_rerun2,
+        patch("streamlit.info"),
+        patch("streamlit.success"),
+        patch("streamlit.divider"),
+        patch("streamlit.altair_chart"),
+        patch("streamlit.dataframe"),
+        patch("streamlit.data_editor", return_value=edited_df),
+    ):
+        render_rebalance_tab(
+            report=report,
+            config=load_rebalance_config(cfg_path),
+            config_path=cfg_path,
+        )
+        mock_toast2.assert_called_once()
+        mock_rerun2.assert_called_once()
+
+    saved_after_genre = load_rebalance_config(cfg_path)
+    assert saved_after_genre.fund_genres == {
+        "0331418A": AssetGenre.BOND,
+        "0331A172": AssetGenre.EQUITY,
+    }
+
+    # 3. 保存エラー時のエラーハンドリング（両ボタン）
+    with (
+        patch("streamlit.subheader"),
+        patch("streamlit.container"),
+        patch("streamlit.markdown"),
+        patch("streamlit.caption"),
+        patch("streamlit.columns", side_effect=mock_columns),
+        patch("streamlit.slider", return_value=60.0),
+        patch("streamlit.metric"),
+        patch("streamlit.button", side_effect=[True, True]),
+        patch("src.ui.tab_rebalance.save_rebalance_config", side_effect=OSError("disk full")),
+        patch("streamlit.error") as mock_err,
+        patch("streamlit.info"),
+        patch("streamlit.success"),
+        patch("streamlit.divider"),
+        patch("streamlit.altair_chart"),
+        patch("streamlit.dataframe"),
+        patch("streamlit.data_editor", return_value=edited_df),
+    ):
+        render_rebalance_tab(report=report, config=RebalanceConfig(), config_path=cfg_path)
+        assert mock_err.call_count == 2
+        assert "保存エラー" in mock_err.call_args_list[0].args[0]
+        assert "保存エラー" in mock_err.call_args_list[1].args[0]

@@ -16,12 +16,18 @@ from src.calculator import create_snapshots_from_report, evaluate_portfolio
 from src.history_db import HistoryRepository
 from src.nav_fetcher import NavFetchResult, fetch_latest_nav_and_names
 from src.portfolio_loader import PRESET_FUNDS, load_portfolio_csv
+from src.rebalancer import (
+    DEFAULT_REBALANCE_CONFIG_FILE,
+    calculate_rebalance_summary,
+    load_rebalance_config,
+)
 from src.ui.header import render_app_header
 from src.ui.sbi_wizard import render_sbi_import_section
 from src.ui.sidebar import render_app_sidebar
 from src.ui.tab_dashboard import render_dashboard_tab
 from src.ui.tab_history import render_history_tab
 from src.ui.tab_master import render_master_tab
+from src.ui.tab_rebalance import render_rebalance_tab
 
 # ---------------------------------------------------------
 # Page Configuration
@@ -132,19 +138,35 @@ def main() -> None:
         snapshots = create_snapshots_from_report(report)
         history_repo.upsert_snapshots(snapshots)
 
+    rebalance_config_path = _ROOT / "data" / DEFAULT_REBALANCE_CONFIG_FILE
+    rebalance_config = load_rebalance_config(rebalance_config_path)
+    rebalance_summary = calculate_rebalance_summary(report=report, config=rebalance_config)
+
     # ---------------------------------------------------------
     # Zone 4: Main Workspace (Tabs segregation)
     # ---------------------------------------------------------
-    tab_dashboard, tab_history, tab_master = st.tabs(
+    tab_dashboard, tab_rebalance, tab_history, tab_master = st.tabs(
         [
             ":material/dashboard: ポートフォリオ評価",
+            ":material/balance: リバランス",
             ":material/trending_up: ファンド推移",
             ":material/edit_note: 保有資産マスター管理",
         ]
     )
 
     with tab_dashboard:
-        render_dashboard_tab(report=report, history_repo=history_repo)
+        render_dashboard_tab(
+            report=report,
+            history_repo=history_repo,
+            rebalance_summary=rebalance_summary,
+        )
+
+    with tab_rebalance:
+        render_rebalance_tab(
+            report=report,
+            config=rebalance_config,
+            config_path=rebalance_config_path,
+        )
 
     with tab_history:
         render_history_tab(history_repo=history_repo)
